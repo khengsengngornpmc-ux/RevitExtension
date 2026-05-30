@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CamboBIM User Guide</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --line: #d8deea;
+      --title: #1f2d48;
+      --text: #27334a;
+      --muted: #5d6a83;
+      --brand: #244a9a;
+      --brand-soft: #e9efff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .wrap {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    .hero {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 18px 20px;
+      background: linear-gradient(135deg, #1e3d86, #2857b9);
+      color: #fff;
+      border-radius: 12px;
+      box-shadow: 0 10px 26px rgba(36, 74, 154, 0.18);
+    }
+    .hero img { width: 44px; height: 44px; }
+    .hero h1 {
+      margin: 0;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: .2px;
+    }
+    .hero p {
+      margin: 2px 0 0;
+      font-size: 13px;
+      opacity: .92;
+    }
+    .section {
+      margin-top: 16px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 18px;
+    }
+    .section h2 {
+      margin: 0 0 10px;
+      color: var(--title);
+      font-size: 19px;
+    }
+    .section h3 {
+      margin: 14px 0 8px;
+      color: var(--title);
+      font-size: 15px;
+    }
+    .muted { color: var(--muted); font-size: 13px; }
+    ol, ul { margin: 8px 0 0 20px; padding: 0; }
+    li { margin: 6px 0; }
+    .tip {
+      margin-top: 10px;
+      padding: 10px 12px;
+      background: var(--brand-soft);
+      border-left: 4px solid var(--brand);
+      border-radius: 6px;
+      font-size: 13px;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px;
+      background: #fff;
+    }
+    .tool {
+      display: grid;
+      grid-template-columns: 38px 1fr;
+      gap: 10px;
+      align-items: center;
+    }
+    .tool img {
+      width: 34px;
+      height: 34px;
+      object-fit: contain;
+      border-radius: 6px;
+      background: #f2f4f9;
+      border: 1px solid #d7dceb;
+      padding: 2px;
+    }
+    .tool strong {
+      display: block;
+      font-size: 13px;
+      line-height: 1.2;
+      color: var(--title);
+    }
+    .tool span {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .grid-tools {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .matrix {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-size: 13px;
+    }
+    .matrix th,
+    .matrix td {
+      border: 1px solid var(--line);
+      padding: 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .matrix th {
+      background: #f4f7ff;
+      color: #1d2c4d;
+      font-weight: 600;
+    }
+    .chips {
+      margin-top: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .chip {
+      display: inline-block;
+      padding: 4px 8px;
+      border: 1px solid #cbd8f4;
+      background: #f3f7ff;
+      border-radius: 999px;
+      font-size: 12px;
+      color: #294683;
+    }
+    .footer-note {
+      margin-top: 16px;
+      color: #6b7486;
+      font-size: 12px;
+      text-align: right;
+    }
+    code {
+      background: #f0f3fa;
+      border: 1px solid #dbe2f0;
+      border-radius: 4px;
+      padding: 1px 4px;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <img src="guide-assets/cambobim_32.png" alt="CamboBIM" />
+      <div>
+        <h1>CamboBIM Revit 2024 User Guide</h1>
+        <p>Quick onboarding, license setup, tool summary, and support information.</p>
+      </div>
+    </div>
+
+    <section class="section">
+      <h2>1) Quick Start (For End Users)</h2>
+      <ol>
+        <li>Open Revit and go to tab <strong>CamboBIM</strong>.</li>
+        <li>Click <strong>LICENSE LOGIN</strong> in panel <strong>Account</strong>.</li>
+        <li>Enter your username and password from your CamboBIM admin.</li>
+        <li>After successful login, check <strong>License expires</strong> and <strong>Remaining</strong>.</li>
+        <li>Use tool buttons in panel <strong>Tools</strong> (CAD2MODEL, QS TOOLS, LINKSHEET, etc.).</li>
+      </ol>
+      <div class="tip">
+        If login fails, contact admin and provide your account email + machine name shown in the error.
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>2) Account Panel (Right Side)</h2>
+      <p class="muted">These buttons are next to each other in the Account panel.</p>
+      <div class="cards">
+        <div class="card tool">
+          <img src="guide-assets/cambobim_32.png" alt="About Me" />
+          <div>
+            <strong>ABOUT ME</strong>
+            <span>Shows product version and support contacts.</span>
+          </div>
+        </div>
+        <div class="card tool">
+          <img src="guide-assets/cambobim_32.png" alt="License Login" />
+          <div>
+            <strong>LICENSE LOGIN</strong>
+            <span>Login, check expiry, and change password.</span>
+          </div>
+        </div>
+        <div class="card tool">
+          <img src="guide-assets/cambobim_32.png" alt="User Guide" />
+          <div>
+            <strong>USER GUIDE</strong>
+            <span>Opens this full HTML guideline window.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>3) License Duration Calendar (For Admin)</h2>
+      <p>License duration is controlled by CamboBIM Google Sheet, not by end users in Revit.</p>
+      <ol>
+        <li>Open Google Sheet license file.</li>
+        <li>Use menu <strong>CamboBIM License &gt; License Expiry Calendar</strong>.</li>
+        <li>Select user, pick expiry date/time, then click <strong>Set Expiry</strong>.</li>
+        <li>Deploy new Apps Script version if script changed.</li>
+      </ol>
+      <h3>Required config file on user PC</h3>
+      <p>File: <code>C:\ProgramData\CamboBIM\online-license.config.json</code></p>
+      <ul>
+        <li><code>enabled</code> must be <code>true</code></li>
+        <li><code>server_url</code> must be your Apps Script <code>/exec</code> URL</li>
+        <li><code>product_code</code> must match <code>allowed_products</code> in Users sheet</li>
+      </ul>
+    </section>
+
+    <section class="section">
+      <h2>4) Tools Panel Summary</h2>
+      <div class="grid-tools">
+        <div class="card tool">
+          <img src="guide-assets/tab_cad2model.png" alt="CAD2MODEL" />
+          <div><strong>CAD2MODEL</strong><span>Generate model from CAD with selected layers.</span></div>
+        </div>
+        <div class="card tool">
+          <img src="guide-assets/tab_qs_tools.png" alt="QS TOOLS" />
+          <div><strong>QS TOOLS</strong><span>Quantity survey workflows and exports.</span></div>
+        </div>
+        <div class="card tool">
+          <img src="guide-assets/tab_sheetlink.png" alt="LINKSHEET" />
+          <div><strong>LINKSHEET</strong><span>Link and manage external sheet data.</span></div>
+        </div>
+        <div class="card tool">
+          <img src="guide-assets/tab_auto_join.png" alt="AUTO JOIN" />
+          <div><strong>AUTO JOIN</strong><span>Automate join operations for model elements.</span></div>
+        </div>
+        <div class="card tool">
+          <img src="guide-assets/tab_drawing.png" alt="DRAWING" />
+          <div><strong>DRAWING</strong><span>Drawing-related automation commands.</span></div>
+        </div>
+        <div class="card tool">
+          <img src="guide-assets/tab_site_progress.png" alt="SITE PROGRESS" />
+          <div><strong>SITE PROGRESS</strong><span>Track and report site progress status.</span></div>
+        </div>
+        <div class="card tool">
+          <img src="guide-assets/tab_scurve.png" alt="POWER BI TOOL" />
+          <div><strong>POWER BI TOOL</strong><span>Open reporting and analytics workflow.</span></div>
+        </div>
+        <div class="card tool">
+          <img src="guide-assets/tab_pm_dashboard.png" alt="PM" />
+          <div><strong>PM</strong><span>Project management dashboard workflow.</span></div>
+        </div>
+        <div class="card tool">
+          <img src="guide-assets/tab_borey.png" alt="BOREY" />
+          <div><strong>BOREY</strong><span>Borey-specific tools and shared parameter checks.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>5) Detailed Sub-Tabs and Tools</h2>
+      <p class="muted">This section documents all main tabs, all sub-tabs, and key buttons based on the current CamboBIM window.</p>
+
+      <h3>CAD2MODEL</h3>
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th>Sub-Tab</th>
+            <th>Main Purpose</th>
+            <th>Key Tools / Fields</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Gridline</td>
+            <td>Generate model grids from CAD layer.</td>
+            <td>Pick Link, Selection Mode (Select Objects/By Layer), Pick Objects, Grid Layer, Label Layer.</td>
+          </tr>
+          <tr>
+            <td>Bored Pile</td>
+            <td>Create bored/spun/sheet pile foundations.</td>
+            <td>Bored/Spun/Sheet layer filters, family selection, Base Level, Top Level, Head Offset.</td>
+          </tr>
+          <tr>
+            <td>Foundation</td>
+            <td>Create slab/isolated foundations from CAD.</td>
+            <td>Slab Layer, Isolated Layer, Slab Type, Isolated Type, Edit Type, Level, Offset.</td>
+          </tr>
+          <tr>
+            <td>Column</td>
+            <td>Create columns from CAD points/blocks/lines.</td>
+            <td>Column Types (Excel): Open Excel, Pick Table, Paste, Clear, Auto Detect, Geometry options, Base/Top levels, Column Type.</td>
+          </tr>
+          <tr>
+            <td>Wall</td>
+            <td>Create walls from CAD lines.</td>
+            <td>Wall Types (Excel): Open Excel, Pick Table, Paste, Clear, Auto Detect, Wall Type, Base/Top constraints.</td>
+          </tr>
+          <tr>
+            <td>Beam</td>
+            <td>Create beams from CAD beams layer.</td>
+            <td>Beam Types (Excel): Open Excel, Pick Table, Paste, Clear, Auto Detect, Beam Type, Base/Top levels.</td>
+          </tr>
+          <tr>
+            <td>Slab</td>
+            <td>Create slabs from CAD slab outlines.</td>
+            <td>Slab Sections (Excel): Open Excel, Paste, Clear, Slab Type, Level, slab thickness mapping.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="chips">
+        <span class="chip">Global Buttons: Generate / Import Excel / Export to Excel / Close</span>
+        <span class="chip">Status bar text at bottom: Ready / action results</span>
+      </div>
+
+      <h3>QS TOOLS</h3>
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th>Sub-Tab</th>
+            <th>Main Purpose</th>
+            <th>Key Tools</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Quick Estimate (CBIM-QS)</td>
+            <td>Setup category scope and formwork behavior.</td>
+            <td>Category checkboxes, rule toggles, Expand All/Collapse All, Export BOQ Excel, Hide/Show Formwork Shape, Delete Formwork Shape.</td>
+          </tr>
+          <tr>
+            <td>Rule Calculation Formwork</td>
+            <td>Control formwork rule definitions.</td>
+            <td>Rule groups, Expand All/Collapse All.</td>
+          </tr>
+          <tr>
+            <td>BOQ Table</td>
+            <td>Review and export computed BOQ rows.</td>
+            <td>Refresh, Copy (Excel), Export Excel, auto-sync option.</td>
+          </tr>
+          <tr>
+            <td>Prepare BOQ</td>
+            <td>Prepare editable BOQ package before export.</td>
+            <td>Create from BOQ, Import Excel/CSV, Sync from BOQ, Export Excel, Clear.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>LINKSHEET</h3>
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th>Sub-Tab</th>
+            <th>Main Purpose</th>
+            <th>Key Tools</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Model Categories</td>
+            <td>Select model categories and parameters.</td>
+            <td>Add/remove parameter selectors (&gt;/&lt;), Instance/Type/Read-only tagging, Isolate Selection, Export Project Standards.</td>
+          </tr>
+          <tr>
+            <td>Annotation Categories</td>
+            <td>Select annotation categories and parameters.</td>
+            <td>Parameter transfer (&gt;/&lt;), Instance/Type/Read-only tags.</td>
+          </tr>
+          <tr>
+            <td>Elements</td>
+            <td>Select explicit elements and fields.</td>
+            <td>Select category, select elements, parameter transfer, Instance/Type/Read-only tags.</td>
+          </tr>
+          <tr>
+            <td>Schedules</td>
+            <td>Drive schedule-based link workflows.</td>
+            <td>Hide un-checked schedules, Isolate Selection, Export Project Standards.</td>
+          </tr>
+          <tr>
+            <td>Spatial</td>
+            <td>Spatial-driven linking mode.</td>
+            <td>Integrated in linksheet workflow.</td>
+          </tr>
+          <tr>
+            <td>Preview/Edit</td>
+            <td>Review and edit linked values before pushback.</td>
+            <td>Preview/Edit, Import, Export, Reset Values, Update Model.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>AUTO JOIN</h3>
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th>Functions</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Join / Switch Join / UnJoin</td>
+            <td>Bulk join control for selected categories and ordering.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>DRAWING</h3>
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th>Functions</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>CAD Source + Layer Filter + Line Style</td>
+            <td>Pick CAD link/objects, choose drawing layer/style, then generate drawing content.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>SITE PROGRESS</h3>
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th>Sub-Tab</th>
+            <th>Main Purpose</th>
+            <th>Key Tools</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>DETAIL PROGRESS</td>
+            <td>Element-level progress editing.</td>
+            <td>Set %, Add(+), Apply To Selection, Refresh, Copy/Import/Export Excel.</td>
+          </tr>
+          <tr>
+            <td>SUMMARY PROGRESS</td>
+            <td>Building/discipline summarized progress.</td>
+            <td>Summary tables by level and structure element.</td>
+          </tr>
+          <tr>
+            <td>PROGRESS DASHBORD</td>
+            <td>Chart/dashboard visualization of progress.</td>
+            <td>Focus Chart, Reset Zoom, Refresh, color 3D view / clear 3D color.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>POWER BI TOOL</h3>
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th>Group</th>
+            <th>Main Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Report URL + Pipeline</td>
+            <td>Open Report, Copy URL, Default URL, Refresh Revit-&gt;Excel-&gt;Power BI, One-click Refresh + Open Power BI.</td>
+          </tr>
+          <tr>
+            <td>Data Export / MSP</td>
+            <td>Export Data Model (CSV), Export Revit-&gt;MSP Package, Import MSP Progress (CSV), Summary All Elements.</td>
+          </tr>
+          <tr>
+            <td>Workspace Actions</td>
+            <td>Open Export Folder, Open PBIP File, Open CamboBIM Dashboard, Refresh Workspace Info.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>PM</h3>
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th>Sub-Tab</th>
+            <th>Main Purpose</th>
+            <th>Key Tools</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Quick Actions</td>
+            <td>Fast operational actions.</td>
+            <td>Open Many Sub-Tabs, Export helpers.</td>
+          </tr>
+          <tr>
+            <td>Planning</td>
+            <td>Planning and programme control.</td>
+            <td>Attach to MS Project, Import/Refresh Programme, Export Programme, Export Calendar.</td>
+          </tr>
+          <tr>
+            <td>Progress</td>
+            <td>Progress dashboard + S-curve reporting.</td>
+            <td>Refresh Data, S-Curve/Column Chart view, Export Excel/PDF.</td>
+          </tr>
+          <tr>
+            <td>Update Progress</td>
+            <td>Push progress updates to planning data.</td>
+            <td>Apply To MS Project, Refresh Data, Columns selector.</td>
+          </tr>
+          <tr>
+            <td>Project Dashboard / Reports / EVM</td>
+            <td>Management reporting and earned value.</td>
+            <td>Lookahead Planning, Cashflow, Progress Report, Activity Task, Project Quality, Standard Reports, EVM table.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>BOREY</h3>
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th>Sub-Tab</th>
+            <th>Main Purpose</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>ProjectInfo</td><td>Project base information with filter and editable grid.</td></tr>
+          <tr><td>Project Status</td><td>Status tracking + chart views.</td></tr>
+          <tr><td>SaleInfo</td><td>Sales-related fields and progress.</td></tr>
+          <tr><td>SiteInfo</td><td>Site-level tracking information.</td></tr>
+          <tr><td>Monthly Plan</td><td>Monthly planning, project overall view.</td></tr>
+          <tr><td>PLAN VS ACTUAL TO REMAINNING</td><td>Plan/Actual/Remaining chart analysis.</td></tr>
+          <tr><td>SUBCONTRACTOR</td><td>Subcontractor tracking view.</td></tr>
+          <tr><td>CONTRACT/LOA/BLC No.</td><td>Contract/LOA/BLC management view.</td></tr>
+          <tr><td>HANDOVER</td><td>House handover status and charts.</td></tr>
+        </tbody>
+      </table>
+      <div class="tip">
+        Bottom action bar (right side): <strong>Clear Filters</strong>, <strong>Import Excel</strong>, <strong>Export to Excel</strong>, <strong>Generate</strong>, <strong>Close</strong>.
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>6) Troubleshooting</h2>
+      <ul>
+        <li><strong>License activation failed / Invalid JSON</strong>: usually wrong Apps Script deployment URL or old deployment version.</li>
+        <li><strong>User not found</strong>: check <code>Users.username</code> in Google Sheet.</li>
+        <li><strong>Invalid username or password</strong>: regenerate SHA-256 hash and update <code>password_hash</code>.</li>
+        <li><strong>Seat limit reached</strong>: increase <code>max_seats</code> or release existing session.</li>
+        <li><strong>User Guide button not visible</strong>: redeploy latest add-in and restart Revit.</li>
+      </ul>
+    </section>
+
+    <div class="footer-note">
+      CamboBIM User Guide - Generated for Revit 2024
+    </div>
+  </div>
+</body>
+</html>

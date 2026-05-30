@@ -1,0 +1,14 @@
+{
+  "profiles": {
+    "CamboBIM.Revit2025.Addin": {
+      "commandName": "Executable",
+      "executablePath": "C:\\Program Files\\Autodesk\\Revit 2025\\Revit.exe",
+      "workingDirectory": "C:\\Program Files\\Autodesk\\Revit 2025"
+    },
+    "Revit 2025": {
+      "commandName": "Executable",
+      "executablePath": "C:\\Program Files\\Autodesk\\Revit 2025\\Revit.exe",
+      "workingDirectory": "C:\\Program Files\\Autodesk\\Revit 2025"
+    }
+  }
+}

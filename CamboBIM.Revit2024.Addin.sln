@@ -1,0 +1,40 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 18
+VisualStudioVersion = 18.2.11415.280
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CamboBIM.Revit2024.Addin", "CamboBIM.Revit2024.Addin.csproj", "{B1E7CE1C-42FA-A2B3-CEDB-98C7C5129B42}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CamboBIM.Revit2025.Addin", "CamboBIM.Revit2025.Addin.csproj", "{57004D92-87B2-4BCE-898A-7126AF505319}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B1E7CE1C-42FA-A2B3-CEDB-98C7C5129B42}.Debug|Any CPU.ActiveCfg = Debug|AnyCPU
+		{B1E7CE1C-42FA-A2B3-CEDB-98C7C5129B42}.Debug|Any CPU.Build.0 = Debug|AnyCPU
+		{B1E7CE1C-42FA-A2B3-CEDB-98C7C5129B42}.Debug|x64.ActiveCfg = Debug|x64
+		{B1E7CE1C-42FA-A2B3-CEDB-98C7C5129B42}.Debug|x64.Build.0 = Debug|x64
+		{B1E7CE1C-42FA-A2B3-CEDB-98C7C5129B42}.Release|Any CPU.ActiveCfg = Release|AnyCPU
+		{B1E7CE1C-42FA-A2B3-CEDB-98C7C5129B42}.Release|Any CPU.Build.0 = Release|AnyCPU
+		{B1E7CE1C-42FA-A2B3-CEDB-98C7C5129B42}.Release|x64.ActiveCfg = Release|x64
+		{B1E7CE1C-42FA-A2B3-CEDB-98C7C5129B42}.Release|x64.Build.0 = Release|x64
+		{57004D92-87B2-4BCE-898A-7126AF505319}.Debug|Any CPU.ActiveCfg = Debug|AnyCPU
+		{57004D92-87B2-4BCE-898A-7126AF505319}.Debug|Any CPU.Build.0 = Debug|AnyCPU
+		{57004D92-87B2-4BCE-898A-7126AF505319}.Debug|x64.ActiveCfg = Debug|x64
+		{57004D92-87B2-4BCE-898A-7126AF505319}.Debug|x64.Build.0 = Debug|x64
+		{57004D92-87B2-4BCE-898A-7126AF505319}.Release|Any CPU.ActiveCfg = Release|AnyCPU
+		{57004D92-87B2-4BCE-898A-7126AF505319}.Release|Any CPU.Build.0 = Release|AnyCPU
+		{57004D92-87B2-4BCE-898A-7126AF505319}.Release|x64.ActiveCfg = Release|x64
+		{57004D92-87B2-4BCE-898A-7126AF505319}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {48FF7A64-785D-41BD-8CA0-18E39CB3687A}
+	EndGlobalSection
+EndGlobal

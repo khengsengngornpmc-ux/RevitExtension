@@ -1,0 +1,71 @@
+# Build outputs
+bin/
+obj/
+bin_codex/
+obj_codex*/
+release/
+Debug/
+Release/
+x64/
+x86/
+*.dll
+*.exe
+*.pdb
+*.deps.json
+*.runtimeconfig.json
+*.obj
+*.pdb
+*.cache
+*.ilk
+*.idb
+*.resources
+*.TMP
+*.tmp
+
+# Visual Studio / IDE local state
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+launch.vs.json
+
+# Local logs and generated diagnostics
+*.log
+build_out*.txt
+build_diag*.txt
+design_time*.txt
+design_time*.log
+preprocessed*.xml
+
+# Local deploy/runtime configuration
+*.addin
+license/online-license.config.json
+Config/local*.json
+Config/*.local.json
+
+# Generated/publication artifacts and local data
+outputs/
+data_source/
+database/
+CamboBIM/
+CamboBIM.Revit2024.Addin/
+RevitExtension/
+images/Reinforcement Shape/
+
+# Local screenshots/test captures
+remote_revit_*.png
+revit_*.png
+rect_debug.txt
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Python/Node helper output
+__pycache__/
+*.pyc
+node_modules/
+package-lock.json

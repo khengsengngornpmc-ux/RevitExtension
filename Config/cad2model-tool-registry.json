@@ -1,0 +1,181 @@
+{
+  "version": "1.0",
+  "source": "MHNK TAS-style Identify / Auto Generate tool registry",
+  "categories": [
+    {
+      "name": "Axis",
+      "isExpanded": true,
+      "items": [
+        { "label": "Axis Grid(X)", "key": "Gridline", "toolName": "Gridline", "status": "Connected" },
+        { "label": "Secondary Axis(U)", "key": "Secondary Axis", "toolName": "", "status": "Future" }
+      ]
+    },
+    {
+      "name": "Segmentation",
+      "isExpanded": true,
+      "items": [
+        { "label": "Segmentation(SE)", "key": "Segmentation", "toolName": "", "status": "Future" }
+      ]
+    },
+    {
+      "name": "Column",
+      "isExpanded": true,
+      "items": [
+        { "label": "Column(C)", "key": "Column", "toolName": "Column", "status": "Connected" },
+        { "label": "Stiffener(S)", "key": "Stiffener", "toolName": "", "status": "Future" },
+        { "label": "Corbel(E)", "key": "Corbel", "toolName": "", "status": "Future" }
+      ]
+    },
+    {
+      "name": "Wall",
+      "isExpanded": true,
+      "items": [
+        { "label": "Wall(W)", "key": "Wall", "toolName": "Wall", "status": "Connected" },
+        { "label": "Curtain Wall(W)", "key": "Curtain Wall", "toolName": "", "status": "Future" },
+        { "label": "Vertical Projection(P)", "key": "Vertical Projection", "toolName": "", "status": "Future" },
+        { "label": "Horizontal Projection(P)", "key": "Horizontal Projection", "toolName": "", "status": "Future" }
+      ]
+    },
+    {
+      "name": "Door/Window Opening",
+      "isExpanded": true,
+      "items": [
+        { "label": "Door(D)", "key": "Door", "toolName": "", "status": "Future" },
+        { "label": "Window(D)", "key": "Window", "toolName": "", "status": "Future" },
+        { "label": "DoorWin(D)", "key": "DoorWin", "toolName": "", "status": "Future" },
+        { "label": "Wall Opening(O)", "key": "Wall Opening", "toolName": "", "status": "Future" },
+        { "label": "Ribbon Window(O)", "key": "Ribbon Window", "toolName": "", "status": "Future" },
+        { "label": "Ribbon Opening(O)", "key": "Ribbon Opening", "toolName": "", "status": "Future" },
+        { "label": "Bay Window(Y)", "key": "Bay Window", "toolName": "", "status": "Future" },
+        { "label": "Dormer(M)", "key": "Dormer", "toolName": "", "status": "Future" },
+        { "label": "Lintel(L)", "key": "Lintel", "toolName": "", "status": "Future" },
+        { "label": "Niche(N)", "key": "Niche", "toolName": "", "status": "Future" },
+        { "label": "Skylight(F)", "key": "Skylight", "toolName": "", "status": "Future" }
+      ]
+    },
+    {
+      "name": "Beam",
+      "isExpanded": true,
+      "items": [
+        { "label": "Beam(B)", "key": "Beam", "toolName": "Beam", "status": "Connected" },
+        { "label": "Coupling Beam(J)", "key": "Coupling Beam", "toolName": "", "status": "Future" },
+        { "label": "Ring Beam(K)", "key": "Ring Beam", "toolName": "", "status": "Future" }
+      ]
+    },
+    {
+      "name": "Slab",
+      "isExpanded": true,
+      "items": [
+        { "label": "In-situ Slab(S)", "key": "Slab", "toolName": "Slab", "status": "Connected" },
+        { "label": "Precast Slab(S)", "key": "Precast Slab", "toolName": "", "status": "Future" },
+        { "label": "Spiral Slab(S)", "key": "Spiral Slab", "toolName": "", "status": "Future" },
+        { "label": "Ramp(R)", "key": "Ramp", "toolName": "", "status": "Future" },
+        { "label": "Drop Panel(V)", "key": "Drop Panel", "toolName": "", "status": "Future" },
+        { "label": "Slab Opening(N)", "key": "Slab Opening", "toolName": "", "status": "Future" }
+      ]
+    },
+    {
+      "name": "Steel Structure",
+      "isExpanded": true,
+      "items": [
+        { "label": "Steel/Composite Column", "key": "Steel/Composite Column", "toolName": "", "status": "Future" },
+        { "label": "Steel/Composite Beam", "key": "Steel/Composite Beam", "toolName": "", "status": "Future" },
+        { "label": "Steel/Composite Slab(S)", "key": "Steel/Composite Slab", "toolName": "", "status": "Future" },
+        { "label": "Steel Column(UC)", "key": "Steel Column", "toolName": "", "status": "Future" },
+        { "label": "Steel Beam(UB)", "key": "Steel Beam", "toolName": "", "status": "Future" },
+        { "label": "Plate(P)", "key": "Plate", "toolName": "", "status": "Future" }
+      ]
+    },
+    {
+      "name": "Staircase",
+      "isExpanded": true,
+      "items": [
+        { "label": "Staircase(F)", "key": "Staircase", "toolName": "", "status": "Future" },
+        { "label": "Straight Flight(F)", "key": "Straight Flight", "toolName": "", "status": "Future" },
+        { "label": "Spiral Flight(F)", "key": "Spiral Flight", "toolName": "", "status": "Future" },
+        { "label": "Stairwell(F)", "key": "Stairwell", "toolName": "", "status": "Future" }
+      ]
+    },
+    {
+      "name": "Finishes",
+      "isExpanded": true,
+      "items": [
+        { "label": "Room(R)", "key": "Room", "toolName": "", "status": "Future" },
+        { "label": "Floor Finish(F)", "key": "Floor Finish", "toolName": "", "status": "Future" },
+        { "label": "Waterproof(P)", "key": "Waterproof", "toolName": "", "status": "Future" },
+        { "label": "Skirting(T)", "key": "Skirting", "toolName": "", "status": "Future" },
+        { "label": "Wall Finish(U)", "key": "Wall Finish", "toolName": "", "status": "Future" },
+        { "label": "Ceiling Finish(E)", "key": "Ceiling Finish", "toolName": "", "status": "Future" },
+        { "label": "Suspended Ceiling(H)", "key": "Suspended Ceiling", "toolName": "", "status": "Future" }
+      ]
+    },
+    {
+      "name": "Prefabrication",
+      "isExpanded": true,
+      "items": [
+        { "label": "Component(CC)", "key": "Component", "toolName": "", "status": "Future" },
+        { "label": "PPVC(PP)", "key": "PPVC", "toolName": "", "status": "Future" },
+        { "label": "Unit Type(UU)", "key": "Unit Type", "toolName": "", "status": "Future" }
+      ]
+    },
+    {
+      "name": "Foundation",
+      "isExpanded": true,
+      "items": [
+        { "label": "Pile Cap(P)", "key": "Foundation", "toolName": "Foundation", "status": "Connected" },
+        { "label": "Pile(P)", "key": "Bored Pile", "toolName": "Bored Pile", "status": "Connected" },
+        { "label": "Ground Beam(F)", "key": "Ground Beam", "toolName": "", "status": "Future" },
+        { "label": "Raft Foundation(M)", "key": "Foundation", "toolName": "Foundation", "status": "Connected" },
+        { "label": "Sump Pit(S)", "key": "Sump Pit", "toolName": "", "status": "Future" },
+        { "label": "Pad Foundation(I)", "key": "Foundation", "toolName": "Foundation", "status": "Connected" },
+        { "label": "Strip Foundation(N)", "key": "Foundation", "toolName": "Foundation", "status": "Connected" },
+        { "label": "Blinding(X)", "key": "Lean Concrete", "toolName": "Lean Concrete", "status": "Connected" }
+      ]
+    },
+    {
+      "name": "Excavation",
+      "isExpanded": true,
+      "items": [
+        { "label": "Heavy Excavation(H)", "key": "Soil Excavation", "toolName": "Soil Excavation", "status": "Connected" },
+        { "label": "Trench Excavation(T)", "key": "Soil Excavation", "toolName": "Soil Excavation", "status": "Connected" },
+        { "label": "Pit Excavation(D)", "key": "Soil Excavation", "toolName": "Soil Excavation", "status": "Connected" },
+        { "label": "Room Backfill(B)", "key": "Room Backfill", "toolName": "", "status": "Future" }
+      ]
+    },
+    {
+      "name": "Others",
+      "isExpanded": true,
+      "items": [
+        { "label": "Floor Area(U)", "key": "Floor Area", "toolName": "", "status": "Future" },
+        { "label": "Courtyard(C)", "key": "Courtyard", "toolName": "", "status": "Future" },
+        { "label": "Site Leveling(G)", "key": "Site Leveling", "toolName": "", "status": "Future" },
+        { "label": "Apron(A)", "key": "Apron", "toolName": "", "status": "Future" },
+        { "label": "Steps(F)", "key": "Steps", "toolName": "", "status": "Future" },
+        { "label": "Post Cast Strip(L)", "key": "Post Cast Strip", "toolName": "", "status": "Future" },
+        { "label": "Eave(E)", "key": "Eave", "toolName": "", "status": "Future" },
+        { "label": "Canopy(P)", "key": "Canopy", "toolName": "", "status": "Future" },
+        { "label": "Balcony(Y)", "key": "Balcony", "toolName": "", "status": "Future" },
+        { "label": "Roof(M)", "key": "Roof", "toolName": "", "status": "Future" },
+        { "label": "Kerb(P)", "key": "Kerb", "toolName": "", "status": "Future" },
+        { "label": "Coping(T)", "key": "Coping", "toolName": "", "status": "Future" },
+        { "label": "Railing(R)", "key": "Railing", "toolName": "", "status": "Future" }
+      ]
+    },
+    {
+      "name": "Custom Element",
+      "isExpanded": true,
+      "items": [
+        { "label": "Custom Point(P)", "key": "Custom Point", "toolName": "", "status": "Future" },
+        { "label": "Custom Line(L)", "key": "Custom Line", "toolName": "", "status": "Future" },
+        { "label": "Custom Area(A)", "key": "Custom Area", "toolName": "", "status": "Future" }
+      ]
+    },
+    {
+      "name": "Custom Quantity",
+      "isExpanded": true,
+      "items": [
+        { "label": "Custom Quantity(Q)", "key": "Custom Quantity", "toolName": "", "status": "Future" }
+      ]
+    }
+  ]
+}

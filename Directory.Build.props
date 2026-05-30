@@ -1,0 +1,5 @@
+<Project>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'CamboBIM.Revit2025.Addin'">
+    <BaseIntermediateOutputPath>obj\Revit2025\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>MHNK.Revit2024.Addin</Name>
+    <Assembly>{{ASSEMBLY_PATH}}</Assembly>
+    <AddInId>{{ADDIN_ID}}</AddInId>
+    <FullClassName>CamboBIM.Revit2024.Addin.App</FullClassName>
+    <VendorId>MHNK</VendorId>
+    <VendorDescription>Mohanokor Engineering Construction</VendorDescription>
+  </AddIn>
+</RevitAddIns>

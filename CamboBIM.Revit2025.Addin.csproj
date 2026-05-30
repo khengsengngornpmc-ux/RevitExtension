@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>CamboBIM.Revit2024.Addin</RootNamespace>
+    <AssemblyName>CamboBIM.Revit2025.Addin</AssemblyName>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <Deterministic>true</Deterministic>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <Platforms>AnyCPU;x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultPageItems>false</EnableDefaultPageItems>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <RevitInstallDir Condition="'$(RevitInstallDir)' == '' and Exists('$(ProgramW6432)\Autodesk\Revit 2025\RevitAPI.dll')">$(ProgramW6432)\Autodesk\Revit 2025\</RevitInstallDir>
+    <RevitInstallDir Condition="'$(RevitInstallDir)' == '' and Exists('C:\Program Files\Autodesk\Revit 2025\RevitAPI.dll')">C:\Program Files\Autodesk\Revit 2025\</RevitInstallDir>
+    <RevitInstallDir Condition="'$(RevitInstallDir)' == ''">C:\Program Files\Autodesk\Revit 2025\</RevitInstallDir>
+    <StartAction>Program</StartAction>
+    <StartProgram>$(RevitInstallDir)Revit.exe</StartProgram>
+    <StartWorkingDirectory>$(RevitInstallDir)</StartWorkingDirectory>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' Or '$(Configuration)|$(Platform)' == 'Debug|Any CPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Revit2025\Debug\</OutputPath>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <DefineConstants>DEBUG;TRACE;REVIT2025</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' Or '$(Configuration)|$(Platform)' == 'Release|Any CPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Revit2025\Release\</OutputPath>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <DefineConstants>TRACE;REVIT2025</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>0</WarningLevel>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
+    <DebugSymbols>true</DebugSymbols>
+    <OutputPath>bin\Revit2025\x64\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE;REVIT2025</DefineConstants>
+    <DebugType>full</DebugType>
+    <PlatformTarget>x64</PlatformTarget>
+    <ErrorReport>prompt</ErrorReport>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
+    <OutputPath>bin\Revit2025\x64\Release\</OutputPath>
+    <DefineConstants>TRACE;REVIT2025</DefineConstants>
+    <Optimize>true</Optimize>
+    <WarningLevel>0</WarningLevel>
+    <DebugType>pdbonly</DebugType>
+    <PlatformTarget>x64</PlatformTarget>
+    <ErrorReport>prompt</ErrorReport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="RevitAPI">
+      <HintPath>$(RevitInstallDir)RevitAPI.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>$(RevitInstallDir)RevitAPIUI.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
+    <PackageReference Include="OxyPlot.Wpf" Version="2.2.0" />
+    <PackageReference Include="System.Data.OleDb" Version="8.0.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="App.cs" />
+    <Compile Include="BoredPileToolExternalEventHandler.cs" />
+    <Compile Include="BoredPileToolWindow.xaml.cs">
+      <DependentUpon>BoredPileToolWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="CadToModelExternalEventHandler.cs" />
+    <Compile Include="CadToModelRequest.cs" />
+    <Compile Include="Cad2ModelToolRegistry.cs" />
+    <Compile Include="TasReferenceSettings.cs" />
+    <Compile Include="TasIdentificationOptions.cs" />
+    <Compile Include="CamboBimJson.cs" />
+    <Compile Include="CamboBimRuntime.cs" />
+    <Compile Include="ComActiveObject.cs" />
+    <Compile Include="IdentifySvgIconFactory.cs" />
+    <Compile Include="CBIM_BOREY.cs" />
+    <Compile Include="CBIM_QS.cs" />
+    <Compile Include="CBIM_BOQ.cs" />
+    <Compile Include="CBIM_SITE_PROGRESS.cs" />
+    <Compile Include="Cad2ModelPicker.cs" />
+    <Compile Include="CadLayoutToColumnCommand.cs" />
+    <Compile Include="IdentifyElementScheduleWindow.cs" />
+    <Compile Include="QsMeasurementSettings.cs" />
+    <Compile Include="QsMeasurementRules.cs" />
+    <Compile Include="CamboBIMWindow.xaml.cs">
+      <DependentUpon>CamboBIMWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="CamboBIMWindow.AdaptTendonImport.cs">
+      <DependentUpon>CamboBIMWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="CamboBIMWindow.MeasurementSettings.cs">
+      <DependentUpon>CamboBIMWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="CamboBIMWindow.MeasurementRules.cs">
+      <DependentUpon>CamboBIMWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="CamboBIMWindow.MeasurementRulesSync.cs">
+      <DependentUpon>CamboBIMWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="CamboBIMWindow.TasExport.cs">
+      <DependentUpon>CamboBIMWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="CamboBIMWindow.BeamNaviate.cs" />
+    <Compile Include="CamboBIMWindowCommand.cs" />
+    <Compile Include="DetectSharedParametersCommand.cs" />
+    <Compile Include="OpenAutoJoinCommand.cs" />
+    <Compile Include="OpenAboutMeCommand.cs" />
+    <Compile Include="OpenBoreyCommand.cs" />
+    <Compile Include="OpenCad2ModelCommand.cs" />
+    <Compile Include="OpenDrawingCommand.cs" />
+    <Compile Include="OpenLinksheetCommand.cs" />
+    <Compile Include="OpenLicenseLoginCommand.cs" />
+    <Compile Include="OpenMhnkArchitectureToolCommand.cs" />
+    <Compile Include="OpenDiagnosticsCommand.cs" />
+    <Compile Include="OpenPmDashboardCommand.cs" />
+    <Compile Include="OpenQsToolCommand.cs" />
+    <Compile Include="OpenSCurveCommand.cs" />
+    <Compile Include="OpenSiteProgressCommand.cs" />
+    <Compile Include="OpenUserGuideCommand.cs" />
+    <Compile Include="HelloCommand.cs" />
+    <Compile Include="Infrastructure\MhnkDiagnostics.cs" />
+    <Compile Include="Infrastructure\MhnkLogger.cs" />
+    <Compile Include="MhnkArcGuideline.cs" />
+    <Compile Include="MhnkArcToolMetadata.cs" />
+    <Compile Include="MhnkArcPreviewModels.cs" />
+    <Compile Include="MhnkArcPreviewService.cs" />
+    <Compile Include="MhnkArcCommandRuntime.cs" />
+    <Compile Include="MhnkArcToolSettingsWindow.cs" />
+    <Compile Include="MhnkArcSmartMappingWindow.cs" />
+    <Compile Include="MhnkArcQaDashboardWindow.cs" />
+    <Compile Include="MhnkArcValidationWindow.cs" />
+    <Compile Include="MhnkSolidsInteractionWindow.cs" />
+    <Compile Include="MhnkCadToModelManagerWindow.cs" />
+    <Compile Include="MhnkCadToModelPreviewWindow.cs" />
+    <Compile Include="MhnkRoomCreationOptionsWindow.cs" />
+    <Compile Include="MhnkArcToolsWindow.cs" />
+    <Compile Include="MhnkUiTheme.cs" />
+    <Compile Include="LinksheetModels.cs" />
+    <Compile Include="Licensing\OnlineLicenseCache.cs" />
+    <Compile Include="Licensing\OnlineLicenseClient.cs" />
+    <Compile Include="Licensing\OnlineLicenseConfig.cs" />
+    <Compile Include="Licensing\OnlineLicenseChangePasswordForm.cs" />
+    <Compile Include="Licensing\OnlineLicenseLoginForm.cs" />
+    <Compile Include="Licensing\OnlineLicenseService.cs" />
+    <Compile Include="ProgressDialogWindow.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="SharedParameterPathResolver.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Page Include="CamboBIMWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="BoredPileToolWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Cad2ModelPicker.xaml.xml" />
+    <Content Include="Config\cad2model-tool-registry.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="license\online-license.config.json.template" />
+    <Content Include="docs\CAMBOBIM_USER_GUIDE.html">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="docs\guide-assets\*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="images\identify-tools\*.svg">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="images\CamboBIM Logo.jpg" />
+    <Resource Include="images\CamboBIM_16.png" />
+    <Resource Include="images\CamboBIM_32.png" />
+    <Resource Include="images\MHNK Logo.jpg" />
+    <Resource Include="images\MHNK Logo.png" />
+    <Resource Include="images\MHNK_16.png" />
+    <Resource Include="images\MHNK_32.png" />
+    <Resource Include="images\MHNK_ARCH_CREATION.png" />
+    <Resource Include="images\MHNK_ARCH_EDITION.png" />
+    <Resource Include="images\MHNK_ARCH_FILTER.png" />
+    <Resource Include="images\MHNK_ARCH_SOLIDS.png" />
+    <Resource Include="images\MHNK_ARCH_XPRESS.png" />
+    <Resource Include="images\MHNK_DISC_ARC.png" />
+    <Resource Include="images\MHNK_DISC_STR.png" />
+    <Resource Include="images\Model Gride.png" />
+    <Resource Include="images\Model Column.png" />
+    <Resource Include="images\Model Slab.png" />
+    <Resource Include="images\Model Wall.png" />
+    <Resource Include="images\Modeling Framing.png" />
+    <Resource Include="images\Modeling Pile Foundation.png" />
+    <Resource Include="images\Model Lean Concrete.png" />
+    <Resource Include="images\Model Soil Excavation.png" />
+    <Resource Include="images\Modeling Slab Foundation.png" />
+    <Resource Include="images\TAB_AUTO JOIN.png" />
+    <Resource Include="images\TAB_BOREY.png" />
+    <Resource Include="images\TAB_CAD2MODEL.png" />
+    <Resource Include="images\TAB_DRAWING.png" />
+    <Resource Include="images\TAB_PM_DASHBOARD.png" />
+    <Resource Include="images\TAB_QS_TOOLS.png" />
+    <Resource Include="images\TAB_SCURVE.png" />
+    <Resource Include="images\TAB_SHEETLINK.png" />
+    <Resource Include="images\TAB_SP_CHECK.png" />
+    <Resource Include="images\TAB_SITE PROGRESS.png" />
+    <Resource Include="images\Reinforcement Shape\Foundation Reinforcement\*.png" />
+    <Resource Include="images\Reinforcement Shape\Wall Reinforcement\*.png" />
+  </ItemGroup>
+
+  <Target Name="DeployRevitAddinManifest" AfterTargets="Build" Condition="'$(DisableRevitDeploy)' != 'true'">
+    <PropertyGroup>
+      <_RevitDeployScriptPath>$(ProjectDir)scripts\deploy-revit2025-addin.ps1</_RevitDeployScriptPath>
+    </PropertyGroup>
+
+    <Exec Condition="Exists('$(_RevitDeployScriptPath)')"
+          Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_RevitDeployScriptPath)&quot; -Configuration &quot;$(Configuration)&quot; -Platform &quot;$(Platform)&quot; -AssemblyPath &quot;$(TargetPath)&quot;"
+          IgnoreExitCode="true">
+      <Output TaskParameter="ExitCode" PropertyName="_RevitDeployScriptExitCode" />
+    </Exec>
+
+    <Warning Condition="'$(_RevitDeployScriptExitCode)' != '' and '$(_RevitDeployScriptExitCode)' != '0'"
+             Text="Revit 2025 add-in deploy step failed (exit code $(_RevitDeployScriptExitCode)). Build output is still available at $(TargetPath)." />
+  </Target>
+</Project>

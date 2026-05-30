@@ -1,0 +1,14 @@
+{
+  "enabled": true,
+  "server_url": "https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec",
+  "product_code": "CBIM_RVT2024_EXTENSION",
+  "activate_endpoint": "?action=activate",
+  "heartbeat_endpoint": "?action=heartbeat",
+  "release_endpoint": "?action=release",
+  "change_password_endpoint": "?action=change_password",
+  "support_contact_email": "support@cambobim.com",
+  "support_contact_phone": "+855 69 901 004",
+  "support_contact_telegram": "@CamboBIMSupport",
+  "timeout_seconds": 20,
+  "heartbeat_seconds": 300
+}
