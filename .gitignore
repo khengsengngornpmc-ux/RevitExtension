@@ -4,7 +4,6 @@ obj/
 bin_codex/
 obj_codex*/
 release/
-deploy/
 Debug/
 Release/
 x64/
