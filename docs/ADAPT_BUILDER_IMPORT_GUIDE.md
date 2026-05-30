@@ -1,49 +1,59 @@
 # ADAPT-Builder To Revit Import
 
-This add-in does not parse ADAPT `.adm` project data directly. ADAPT-Builder 2018/2019 stores project data in proprietary/native files and native DLLs, so the supported bridge is to export or copy data from ADAPT, then import that exported file into Revit.
+`DRAWING PT` can import ADAPT tendon geometry directly from supported `.adm` files without opening ADAPT-Builder. The direct `.adm` parser reads tendon profile/control-point records from the project file in read-only mode and creates Revit tendon profile curves.
 
-If an `.adm` file is selected in `Import ADAPT`, the add-in first looks for a nearby DWG/DXF export from that ADAPT project. If one is found, it offers to import it immediately. If no export is ready, it offers to open the model in ADAPT-Builder and then guides the user back to the DWG/DXF or table import path.
+Use `MHNK > STR > DRAWING PT` for the dedicated ADAPT/PT workflow. The button opens the ADAPT import picker directly.
+
+If an `.adm` file is selected, the add-in first tries direct tendon profile import from the `.adm`. If direct profile geometry is not found, it looks for a nearby DWG/DXF export from that ADAPT project and offers to import it. If neither path is available, it stops and asks the user to select an ADAPT-exported DWG/DXF or tendon/profile table. `DRAWING PT` does not launch ADAPT-Builder.
+
+The tool remembers the last ADAPT folder and project between Revit sessions. On the next `DRAWING PT` click, it can offer the latest DWG/DXF export from the previous ADAPT project before asking the user to browse again.
+
+For DWG/DXF files, `DRAWING PT` asks whether to link the export or import it into the model. Link is recommended because the source remains external and easier to refresh/manage; import is available when an embedded CAD copy is required. The last selected mode is remembered between Revit sessions.
+
+If the same ADAPT CAD export is already in the Revit model, `DRAWING PT` asks whether to reuse the existing CAD source or import another copy. Each CAD import/reuse attempt is logged under `%APPDATA%\MHNK\RevitExtension\DRAWING_PT\Reports`.
+
+After a DWG/DXF import or reuse, the tool analyzes CAD layer names and reports likely PT/tendon/profile layers in the status message and audit log. If no PT-specific layer name is obvious, it reports the top populated CAD layers so the user can inspect the export quickly.
 
 ## Verified Local Install
 
-- ADAPT-Builder 2018: `C:\Program Files (x86)\ADAPT\ADAPT-Builder 2018\builder.exe`
+- ADAPT-Builder 2018 exists at `C:\Program Files (x86)\ADAPT\ADAPT-Builder 2018\builder.exe`, but `DRAWING PT` does not use or open this executable for `.adm` import.
 - ADAPT-Builder 2019 is also installed on this PC.
-- `.adm` files are associated with ADAPT-Builder 2018 on this machine.
+- `.adm` files are associated with ADAPT-Builder 2018 on this machine, but the Revit add-in reads the selected file path directly.
+
+The sample file `C:\Users\PC\Desktop\New folder\6950022_1F-12STRANDS_round_duct.adm` was inspected as a binary ADAPT project file. Its direct tendon profile/control-point records were readable without starting ADAPT-Builder.
 
 ## Recommended Workflows
 
-### Tendon Plan Geometry
+### Direct `.adm` Tendon Geometry
 
-1. In Revit, open `MHNK > STR > CAD2MODEL`.
-2. Click `Import ADAPT`.
-3. Select the ADAPT `.adm` model if it is not already open.
-4. If the add-in finds a nearby DWG/DXF export, confirm the prompt to import it.
-5. If no export is ready, confirm the prompt to open the model in ADAPT-Builder.
-6. In ADAPT-Builder, turn on the tendon display and hide other items as needed.
-7. Export the tendon plan using ADAPT's DWG/DXF export.
-8. Return to Revit.
-9. Click `Import ADAPT` again and select the DWG/DXF. The dialog starts in the last ADAPT folder used during this Revit session.
-10. The add-in links the drawing at the project origin, selects it as the CAD2MODEL source, and loads the CAD layers.
-11. Use existing CAD2MODEL tools to pick CAD geometry or layers.
+1. In Revit, open `MHNK > STR > DRAWING PT`.
+2. Select the ADAPT `.adm` model.
+3. If tendon profile records are found, the add-in creates `MHNK ADAPT Tendon` profile curves in Revit.
+4. Check the status bar for the number of imported profiles, points, segments, and inferred units.
 
-If the `.adm` is already open in ADAPT-Builder, start at the export step:
+The direct parser uses ADAPT profile/control-point blocks rather than the flat plan centerline. ADAPT X/Z are treated as plan/station axes, and ADAPT Y is treated as the Revit elevation axis.
+
+### DWG/DXF Fallback
+
+Use this when direct `.adm` import does not find readable tendon geometry or when you prefer the ADAPT drawing appearance.
 
 1. Export the tendon plan using ADAPT's DWG/DXF export.
-2. In Revit, open `MHNK > STR > CAD2MODEL`.
-3. Click `Import ADAPT` and select the DWG/DXF.
-4. The add-in links the drawing at the project origin, selects it as the CAD2MODEL source, and loads the CAD layers.
-5. Use existing CAD2MODEL tools to pick CAD geometry or layers.
+2. In Revit, click `MHNK > STR > DRAWING PT` and select the DWG/DXF.
+3. The add-in links the drawing at the project origin, selects it as the CAD2MODEL source, and loads the CAD layers.
+4. Use existing CAD2MODEL tools to pick CAD geometry or layers.
 
 ### Tendon/Profile Table
 
 1. Export or copy a tendon/profile point table from ADAPT/report output to CSV, TXT, TSV, XLSX, XLSM, or XLS.
-2. In Revit, open `MHNK > STR > CAD2MODEL`.
-3. Click `Import ADAPT`.
-4. Select the exported table.
+2. In Revit, click `MHNK > STR > DRAWING PT`.
+3. Select the exported table.
 
 The importer creates:
 
 - A selected CAD2MODEL source when the file is ADAPT-exported DWG/DXF.
+- CAD instance comments with ADAPT PT source metadata after a DWG/DXF link/import.
+- Duplicate detection for previously linked/imported ADAPT PT CAD exports.
+- PT/tendon/profile layer candidates from the imported DWG/DXF.
 - 3D model lines when the table contains `X`, `Y`, and `Z` style columns.
 - 2D profile detail lines when the table contains `Station` and `Elevation` style columns.
 

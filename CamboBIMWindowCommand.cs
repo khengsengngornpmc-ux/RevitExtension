@@ -9,6 +9,7 @@ namespace CamboBIM.Revit2024.Addin
     public class CamboBIMWindowCommand : IExternalCommand
     {
         private static CamboBIMWindow _window;
+        internal static CamboBIMWindow CurrentWindow => _window;
 
         public Result Execute(ExternalCommandData commandData, ref string message, Autodesk.Revit.DB.ElementSet elements)
         {

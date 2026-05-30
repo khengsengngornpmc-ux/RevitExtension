@@ -459,6 +459,19 @@ namespace CamboBIM.Revit2024.Addin
                 Image = LoadRibbonIcon("images/TAB_DRAWING.png", 16)
             };
 
+            PushButtonData drawingPtButton = new(
+                $"{buttonIdPrefix}_OpenDrawingPt",
+                "DRAWING\nPT",
+                assemblyPath,
+                CamboBimRuntime.GetCommandClassName(typeof(OpenDrawingPtCommand))
+            )
+            {
+                ToolTip = "Import ADAPT-Builder PT drawings or profile tables into Revit.",
+                LongDescription = "Opens the MHNK CAD2MODEL workspace and starts the ADAPT/PT import workflow for .adm, .dwg, .dxf, CSV, and Excel exports.",
+                LargeImage = LoadRibbonIcon("images/identify-tools/post-cast-strip.svg", 32),
+                Image = LoadRibbonIcon("images/identify-tools/post-cast-strip.svg", 16)
+            };
+
             PushButtonData sCurveButton = new(
                 $"{buttonIdPrefix}_OpenSCurve",
                 "BI TOOLS",
@@ -502,6 +515,7 @@ namespace CamboBIM.Revit2024.Addin
             toolsPanel.AddItem(linksheetButton);
             toolsPanel.AddItem(autoJoinButton);
             toolsPanel.AddItem(drawingButton);
+            toolsPanel.AddItem(drawingPtButton);
 
             PushButtonData camboBimWindow = new(
                 $"{buttonIdPrefix}_OpenWindow",

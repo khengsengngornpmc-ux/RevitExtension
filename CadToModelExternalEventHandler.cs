@@ -17397,7 +17397,7 @@ namespace CamboBIM.Revit2024.Addin
             }
         }
 
-        private static void DrawShopDrawingKeyValuePanel(
+        private static double DrawShopDrawingKeyValuePanel(
             Document doc,
             View view,
             TextNoteType textType,
@@ -17425,6 +17425,8 @@ namespace CamboBIM.Revit2024.Addin
                 AddShopDrawingText(doc, view, textType, x + keyWidth + 0.04, rowY, TruncateShopDrawingCell(value, 26));
                 rowY -= rowHeight;
             }
+
+            return tableBottom;
         }
 
         private static List<Element> CollectAssociatedSelectedElementRebar(Document doc, Element element)
@@ -17901,85 +17903,107 @@ namespace CamboBIM.Revit2024.Addin
                     continue;
                 }
 
-                ViewDrafting view = null;
-                View3D modelView = null;
-                try
+                int pageSize = Math.Max(1, maxMarksPerSheet);
+                int pageCount = Math.Max(1, (int)Math.Ceiling(groupElements.Count / (double)pageSize));
+                for (int pageIndex = 0; pageIndex < pageCount; pageIndex++)
                 {
-                    view = ViewDrafting.Create(doc, draftingType.Id);
+                    List<Element> pageElements = groupElements
+                        .Skip(pageIndex * pageSize)
+                        .Take(pageSize)
+                        .ToList();
+                    if (pageElements.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    string pageLabel = pageCount > 1
+                        ? $"{group.DisplayName} - Sheet {pageIndex + 1} of {pageCount}"
+                        : group.DisplayName;
                     string safeLevel = string.IsNullOrWhiteSpace(group.SafeName)
                         ? SanitizeShopDrawingName(group.DisplayName)
                         : group.SafeName;
-                    view.Name = MakeUniqueViewName(viewNames, $"{viewPrefix}_{safeLevel}");
+                    if (pageCount > 1)
+                    {
+                        safeLevel = $"{safeLevel}_P{pageIndex + 1:00}";
+                    }
+
+                    ViewDrafting view = null;
+                    View3D modelView = null;
                     try
                     {
-                        view.Scale = 1;
+                        view = ViewDrafting.Create(doc, draftingType.Id);
+                        view.Name = MakeUniqueViewName(viewNames, $"{viewPrefix}_{safeLevel}");
+                        try
+                        {
+                            view.Scale = 1;
+                        }
+                        catch
+                        {
+                        }
+
+                        DrawShopDrawingDraftingView(doc, view, textType, pageElements, drawingTitle, pageLabel, viewScale, maxMarksPerSheet, issueText, isFormwork);
+                        createdViews.Add(view);
+
+                        if (modelViewType != null)
+                        {
+                            modelView = CreateShopDrawingModelView(
+                                doc,
+                                modelViewType,
+                                viewNames,
+                                pageElements,
+                                $"{viewPrefix}_3D_{safeLevel}",
+                                viewScale,
+                                isFormwork);
+                            if (modelView != null)
+                            {
+                                createdViews.Add(modelView);
+                            }
+                        }
+
+                        if (createSheets)
+                        {
+                            ViewSheet sheet = CreateShopDrawingSheetForViews(
+                                doc,
+                                view,
+                                modelView,
+                                titleBlockTypeId,
+                                sheetNumbers,
+                                sheetPrefix,
+                                drawingTitle,
+                                pageLabel,
+                                metadata);
+                            if (sheet != null)
+                            {
+                                createdSheets.Add(sheet);
+                            }
+                        }
                     }
                     catch
                     {
-                    }
+                        if (modelView != null && modelView.Id != null && modelView.Id != ElementId.InvalidElementId)
+                        {
+                            try
+                            {
+                                doc.Delete(modelView.Id);
+                            }
+                            catch
+                            {
+                            }
+                        }
 
-                    DrawShopDrawingDraftingView(doc, view, textType, groupElements, drawingTitle, group.DisplayName, viewScale, maxMarksPerSheet, issueText, isFormwork);
-                    createdViews.Add(view);
+                        if (view != null && view.Id != null && view.Id != ElementId.InvalidElementId)
+                        {
+                            try
+                            {
+                                doc.Delete(view.Id);
+                            }
+                            catch
+                            {
+                            }
+                        }
 
-                    if (modelViewType != null)
-                    {
-                        modelView = CreateShopDrawingModelView(
-                            doc,
-                            modelViewType,
-                            viewNames,
-                            groupElements,
-                            $"{viewPrefix}_3D_{safeLevel}",
-                            viewScale,
-                            isFormwork);
-                        if (modelView != null)
-                        {
-                            createdViews.Add(modelView);
-                        }
+                        skippedGroups++;
                     }
-
-                    if (createSheets)
-                    {
-                        ViewSheet sheet = CreateShopDrawingSheetForViews(
-                            doc,
-                            view,
-                            modelView,
-                            titleBlockTypeId,
-                            sheetNumbers,
-                            sheetPrefix,
-                            drawingTitle,
-                            group.DisplayName,
-                            metadata);
-                        if (sheet != null)
-                        {
-                            createdSheets.Add(sheet);
-                        }
-                    }
-                }
-                catch
-                {
-                    if (modelView != null && modelView.Id != null && modelView.Id != ElementId.InvalidElementId)
-                    {
-                        try
-                        {
-                            doc.Delete(modelView.Id);
-                        }
-                        catch
-                        {
-                        }
-                    }
-
-                    if (view != null && view.Id != null && view.Id != ElementId.InvalidElementId)
-                    {
-                        try
-                        {
-                            doc.Delete(view.Id);
-                        }
-                        catch
-                        {
-                        }
-                    }
-
-                    skippedGroups++;
                 }
             }
         }
@@ -18066,10 +18090,15 @@ namespace CamboBIM.Revit2024.Addin
             string issueText,
             bool isFormwork)
         {
-            AddShopDrawingText(doc, view, textType, 0.0, 0.8, $"{drawingTitle} - {levelName}");
-            AddShopDrawingText(doc, view, textType, 0.0, 0.45, $"Scale 1:{viewScale} | Issue: {issueText} | Elements: {elements.Count} | Generated by CamboBIM");
+            List<Element> orderedElements = (elements ?? new List<Element>())
+                .Where(e => e != null)
+                .OrderBy(e => e.Id?.Value ?? 0)
+                .ToList();
 
-            if (TryGetShopDrawingModelBounds(elements, out double minX, out double minY, out double maxX, out double maxY))
+            AddShopDrawingText(doc, view, textType, 0.0, 0.8, $"{drawingTitle} - {levelName}");
+            AddShopDrawingText(doc, view, textType, 0.0, 0.45, $"Scale 1:{viewScale} | Issue: {issueText} | Elements: {orderedElements.Count} | Generated by CamboBIM");
+
+            if (TryGetShopDrawingModelBounds(orderedElements, out double minX, out double minY, out double maxX, out double maxY))
             {
                 const double drawingWidth = 7.6;
                 const double drawingHeight = 5.0;
@@ -18097,7 +18126,7 @@ namespace CamboBIM.Revit2024.Addin
                     modelHeight);
 
                 int drawn = 0;
-                foreach (Element element in elements.Take(250))
+                foreach (Element element in orderedElements.Take(250))
                 {
                     BoundingBoxXYZ bb = element.get_BoundingBox(null);
                     if (bb == null)
@@ -18127,9 +18156,9 @@ namespace CamboBIM.Revit2024.Addin
                     drawn++;
                 }
 
-                if (elements.Count > 250)
+                if (orderedElements.Count > 250)
                 {
-                    AddShopDrawingText(doc, view, textType, 0.0, top - drawingHeight - 0.3, $"Layout preview limited to first 250 of {elements.Count} element(s).");
+                    AddShopDrawingText(doc, view, textType, 0.0, top - drawingHeight - 0.3, $"Layout preview limited to first 250 of {orderedElements.Count} element(s).");
                 }
             }
             else
@@ -18137,8 +18166,13 @@ namespace CamboBIM.Revit2024.Addin
                 AddShopDrawingText(doc, view, textType, 0.0, -0.15, "No drawable bounding boxes were available; see element schedule below.");
             }
 
-            DrawShopDrawingScheduleTable(doc, view, textType, elements, isFormwork, maxMarksPerSheet, 8.1, 0.35);
-            AddShopDrawingConstructionNotes(doc, view, textType, isFormwork, 8.1, -5.45);
+            DrawShopDrawingQcPanel(doc, view, textType, orderedElements, isFormwork, 0.0, -5.95);
+
+            const double sideX = 8.1;
+            double panelBottom = DrawShopDrawingPackageQuantityPanel(doc, view, textType, orderedElements, isFormwork, sideX, 0.35);
+            double breakdownBottom = DrawShopDrawingBreakdownPanel(doc, view, textType, orderedElements, isFormwork, sideX, panelBottom - 0.28);
+            double scheduleBottom = DrawShopDrawingScheduleTable(doc, view, textType, orderedElements, isFormwork, maxMarksPerSheet, sideX, breakdownBottom - 0.30);
+            AddShopDrawingConstructionNotes(doc, view, textType, isFormwork, sideX, scheduleBottom - 0.38);
         }
 
         private static View3D CreateShopDrawingModelView(
@@ -18361,7 +18395,9 @@ namespace CamboBIM.Revit2024.Addin
                         sheet,
                         draftingView,
                         slots[0],
-                        preferredScale: 1);
+                        preferredScale: 1,
+                        titleOnSheet: BuildShopDrawingPackageViewportTitle(drawingTitle, modelViewport: false),
+                        detailNumber: "1");
                     if (draftingViewport != null)
                     {
                         placedViewports++;
@@ -18375,7 +18411,9 @@ namespace CamboBIM.Revit2024.Addin
                         sheet,
                         modelView,
                         slots[1],
-                        preferredScale: Math.Max(1, modelView.Scale));
+                        preferredScale: Math.Max(1, modelView.Scale),
+                        titleOnSheet: BuildShopDrawingPackageViewportTitle(drawingTitle, modelViewport: true),
+                        detailNumber: "2");
                     if (modelViewport != null)
                     {
                         placedViewports++;
@@ -18838,6 +18876,32 @@ namespace CamboBIM.Revit2024.Addin
 
             string title = NormalizeShopDrawingViewportText(titleOnSheet, 32);
             TrySetShopDrawingTextParameter(view, title, "Title on Sheet", "View Title", "Drawing Title");
+        }
+
+        private static string BuildShopDrawingPackageViewportTitle(string drawingTitle, bool modelViewport)
+        {
+            if (modelViewport)
+            {
+                return "3D";
+            }
+
+            string title = drawingTitle ?? "";
+            if (title.IndexOf("REBAR", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return "REBAR PLAN";
+            }
+
+            if (title.IndexOf("FORMWORK", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return "FORMWORK PLAN";
+            }
+
+            if (title.IndexOf("INDEX", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return "INDEX";
+            }
+
+            return "LAYOUT";
         }
 
         private static void ApplyShopDrawingViewportLabel(
@@ -19526,7 +19590,160 @@ namespace CamboBIM.Revit2024.Addin
             }
         }
 
-        private static void DrawShopDrawingScheduleTable(
+        private static double DrawShopDrawingPackageQuantityPanel(
+            Document doc,
+            View view,
+            TextNoteType textType,
+            IList<Element> elements,
+            bool isFormwork,
+            double x,
+            double y)
+        {
+            List<Element> items = (elements ?? new List<Element>())
+                .Where(e => e != null)
+                .ToList();
+            List<string[]> rows;
+            if (isFormwork)
+            {
+                double areaSqM = items.Sum(e => GetShopDrawingParameterDouble(e, "CBIM.FWK.FaceArea")) * 0.09290304;
+                int hostCount = items
+                    .Select(TryGetFormworkHostIdValue)
+                    .Where(id => id > 0)
+                    .Distinct()
+                    .Count();
+                int faceCount = items
+                    .Select(e => GetShopDrawingParameterString(e, "CBIM.FWK.FaceType"))
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Count();
+                int missingData = items.Count(e => BuildFormworkShopDrawingQcCode(e) != "OK");
+                rows = new List<string[]>
+                {
+                    new[] { "Marks", items.Count.ToString(CultureInfo.InvariantCulture) },
+                    new[] { "Area", $"{areaSqM:0.###} m2" },
+                    new[] { "Hosts", hostCount.ToString(CultureInfo.InvariantCulture) },
+                    new[] { "Faces", faceCount.ToString(CultureInfo.InvariantCulture) },
+                    new[] { "QC flags", missingData == 0 ? "OK" : missingData.ToString(CultureInfo.InvariantCulture) }
+                };
+            }
+            else
+            {
+                double barQty = items.Sum(GetShopDrawingRebarQuantity);
+                double lengthM = items.Sum(GetShopDrawingRebarLengthFt) * 0.3048;
+                double weightKg = items.Sum(e => EstimateShopDrawingRebarWeightKg(doc, e));
+                int diameterCount = items
+                    .Select(e => GetShopDrawingRebarDiameterMm(doc, e))
+                    .Where(d => d > 1e-9)
+                    .Select(d => Math.Round(d, 1))
+                    .Distinct()
+                    .Count();
+                int missingData = items.Count(e => BuildRebarShopDrawingQcCode(doc, e) != "OK");
+                rows = new List<string[]>
+                {
+                    new[] { "Sets", items.Count.ToString(CultureInfo.InvariantCulture) },
+                    new[] { "Bars", $"{barQty:0.##}" },
+                    new[] { "Length", $"{lengthM:0.###} m" },
+                    new[] { "Weight", $"{weightKg:0.###} kg" },
+                    new[] { "Diameters", diameterCount.ToString(CultureInfo.InvariantCulture) },
+                    new[] { "QC flags", missingData == 0 ? "OK" : missingData.ToString(CultureInfo.InvariantCulture) }
+                };
+            }
+
+            return DrawShopDrawingKeyValuePanel(
+                doc,
+                view,
+                textType,
+                x,
+                y,
+                isFormwork ? "FORMWORK QTY" : "REBAR QTY",
+                rows,
+                valueWidth: 1.0);
+        }
+
+        private static double DrawShopDrawingBreakdownPanel(
+            Document doc,
+            View view,
+            TextNoteType textType,
+            IList<Element> elements,
+            bool isFormwork,
+            double x,
+            double y)
+        {
+            List<string> rows = isFormwork
+                ? BuildFormworkBreakdownRows(elements, maxRows: 5)
+                : BuildRebarBreakdownRows(doc, elements, maxRows: 5);
+
+            return DrawShopDrawingSimpleRowsPanel(
+                doc,
+                view,
+                textType,
+                x,
+                y,
+                isFormwork ? "FACE BREAKDOWN" : "BAR BENDING SUMMARY",
+                rows,
+                maxChars: isFormwork ? 42 : 48);
+        }
+
+        private static double DrawShopDrawingQcPanel(
+            Document doc,
+            View view,
+            TextNoteType textType,
+            IList<Element> elements,
+            bool isFormwork,
+            double x,
+            double y)
+        {
+            List<string> rows = BuildShopDrawingQcRows(doc, elements, isFormwork)
+                .Take(6)
+                .ToList();
+
+            return DrawShopDrawingSimpleRowsPanel(
+                doc,
+                view,
+                textType,
+                x,
+                y,
+                "DRAFTSMAN / SITE QC",
+                rows,
+                maxChars: 76);
+        }
+
+        private static double DrawShopDrawingSimpleRowsPanel(
+            Document doc,
+            View view,
+            TextNoteType textType,
+            double x,
+            double y,
+            string title,
+            IList<string> rows,
+            int maxChars)
+        {
+            List<string> safeRows = (rows ?? new List<string>())
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .ToList();
+            if (safeRows.Count == 0)
+            {
+                safeRows.Add("No rows available.");
+            }
+
+            AddShopDrawingText(doc, view, textType, x, y, title);
+            double rowHeight = 0.18;
+            double panelWidth = Math.Max(2.2, Math.Min(7.65, maxChars * 0.085));
+            double tableTop = y - 0.12;
+            double tableBottom = tableTop - safeRows.Count * rowHeight - 0.06;
+            AddShopDrawingRectangle(doc, view, x - 0.04, tableTop + 0.04, x + panelWidth, tableBottom);
+
+            double rowY = tableTop - rowHeight + 0.04;
+            foreach (string row in safeRows)
+            {
+                AddShopDrawingText(doc, view, textType, x, rowY, TruncateShopDrawingCell(row, maxChars));
+                rowY -= rowHeight;
+            }
+
+            return tableBottom;
+        }
+
+        private static double DrawShopDrawingScheduleTable(
             Document doc,
             View view,
             TextNoteType textType,
@@ -19538,20 +19755,20 @@ namespace CamboBIM.Revit2024.Addin
         {
             int rowLimit = Math.Max(1, Math.Min(200, maxRows));
             List<string[]> rows = isFormwork
-                ? BuildFormworkShopDrawingRows(elements, rowLimit)
+                ? BuildFormworkShopDrawingRows(doc, elements, rowLimit)
                 : BuildRebarShopDrawingRows(doc, elements, rowLimit);
             string[] headers = isFormwork
-                ? new[] { "Mark", "Host", "Category", "Face", "Area", "Element" }
-                : new[] { "Mark", "Host", "Bar Type", "Dia", "Qty", "Length", "Weight" };
+                ? new[] { "Mark", "Host", "Category", "Face", "Area", "Element", "QC" }
+                : new[] { "Mark", "Host", "Bar Type", "Dia", "Qty", "Length", "Weight", "Shape", "QC" };
             double[] widths = isFormwork
-                ? new[] { 0.65, 0.9, 1.3, 0.9, 0.8, 0.9 }
-                : new[] { 0.65, 1.0, 1.55, 0.6, 0.5, 0.8, 0.85 };
+                ? new[] { 0.62, 0.92, 1.12, 0.78, 0.72, 0.78, 0.62 }
+                : new[] { 0.58, 0.86, 1.18, 0.46, 0.42, 0.66, 0.72, 0.70, 0.56 };
 
             string title = isFormwork ? "FORMWORK MARK SCHEDULE" : "REBAR BAR MARK SCHEDULE";
             AddShopDrawingText(doc, view, textType, x, y, title);
 
             double headerY = y - 0.28;
-            double rowHeight = 0.22;
+            double rowHeight = 0.19;
             double tableWidth = widths.Sum();
             double tableBottom = headerY - ((rows.Count + 1) * rowHeight);
             AddShopDrawingRectangle(doc, view, x - 0.05, headerY + 0.12, x + tableWidth + 0.05, tableBottom - 0.02);
@@ -19575,7 +19792,7 @@ namespace CamboBIM.Revit2024.Addin
                 colX = x;
                 for (int i = 0; i < headers.Length && i < row.Length; i++)
                 {
-                    AddShopDrawingText(doc, view, textType, colX, rowY, TruncateShopDrawingCell(row[i], i == 2 ? 20 : 14));
+                    AddShopDrawingText(doc, view, textType, colX, rowY, TruncateShopDrawingCell(row[i], i == 2 ? 18 : 12));
                     colX += widths[i];
                 }
 
@@ -19585,21 +19802,19 @@ namespace CamboBIM.Revit2024.Addin
             if ((elements?.Count ?? 0) > rows.Count)
             {
                 AddShopDrawingText(doc, view, textType, x, tableBottom - 0.25, $"Showing first {rows.Count} of {elements.Count} item(s).");
+                return tableBottom - 0.25;
             }
+
+            return tableBottom;
         }
 
         private static string BuildShopDrawingElementTag(Element element, int index, bool isFormwork)
         {
             string prefix = isFormwork ? "FW" : "RB";
-            if (element?.Id == null || element.Id == ElementId.InvalidElementId)
-            {
-                return $"{prefix}-{index:000}";
-            }
-
-            return $"{prefix}-{index:000}";
+            return BuildShopDrawingMark(element, prefix, index);
         }
 
-        private static List<string[]> BuildFormworkShopDrawingRows(IList<Element> elements, int maxRows)
+        private static List<string[]> BuildFormworkShopDrawingRows(Document doc, IList<Element> elements, int maxRows)
         {
             return (elements ?? new List<Element>())
                 .Where(e => e != null)
@@ -19607,9 +19822,7 @@ namespace CamboBIM.Revit2024.Addin
                 .Take(Math.Max(1, maxRows))
                 .Select((e, i) =>
                 {
-                    string host = TryGetFormworkHostIdValue(e) > 0
-                        ? TryGetFormworkHostIdValue(e).ToString(CultureInfo.InvariantCulture)
-                        : "-";
+                    string host = GetShopDrawingFormworkHostLabel(doc, e);
                     string category = DefaultText(GetShopDrawingParameterString(e, "CBIM.FWK.Category"), e.Category?.Name ?? "Formwork");
                     string face = DefaultText(GetShopDrawingParameterString(e, "CBIM.FWK.FaceType"), "-");
                     double areaSqM = GetShopDrawingParameterDouble(e, "CBIM.FWK.FaceArea") * 0.09290304;
@@ -19618,12 +19831,13 @@ namespace CamboBIM.Revit2024.Addin
                         : e.Id.Value.ToString(CultureInfo.InvariantCulture);
                     return new[]
                     {
-                        $"FW-{i + 1:000}",
+                        BuildShopDrawingMark(e, "FW", i + 1),
                         host,
                         category,
                         face,
                         $"{areaSqM:0.###} m2",
-                        elementId
+                        elementId,
+                        BuildFormworkShopDrawingQcCode(e)
                     };
                 })
                 .ToList();
@@ -19643,16 +19857,216 @@ namespace CamboBIM.Revit2024.Addin
                     double weightKg = EstimateShopDrawingRebarWeightKg(doc, e);
                     return new[]
                     {
-                        $"RB-{i + 1:000}",
+                        BuildShopDrawingMark(e, "RB", i + 1),
                         TruncateShopDrawingCell(GetShopDrawingRebarHostLabel(doc, e), 14),
                         GetShopDrawingElementTypeName(doc, e),
                         diameterMm > 1e-9 ? $"D{diameterMm:0.#}" : "-",
                         $"{qty:0.##}",
                         $"{lengthM:0.###} m",
-                        $"{weightKg:0.###} kg"
+                        $"{weightKg:0.###} kg",
+                        GetShopDrawingRebarShapeLabel(doc, e),
+                        BuildRebarShopDrawingQcCode(doc, e)
                     };
                 })
                 .ToList();
+        }
+
+        private static List<string> BuildFormworkBreakdownRows(IList<Element> elements, int maxRows)
+        {
+            List<string> rows = (elements ?? new List<Element>())
+                .Where(e => e != null)
+                .GroupBy(e => new
+                {
+                    Face = DefaultText(GetShopDrawingParameterString(e, "CBIM.FWK.FaceType"), "No Face"),
+                    Category = AbbreviateShopDrawingCategory(DefaultText(GetShopDrawingParameterString(e, "CBIM.FWK.Category"), e.Category?.Name ?? "Formwork"))
+                })
+                .OrderByDescending(g => g.Sum(e => GetShopDrawingParameterDouble(e, "CBIM.FWK.FaceArea")))
+                .ThenBy(g => g.Key.Category, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(g => g.Key.Face, StringComparer.OrdinalIgnoreCase)
+                .Take(Math.Max(1, maxRows))
+                .Select(g =>
+                {
+                    double areaSqM = g.Sum(e => GetShopDrawingParameterDouble(e, "CBIM.FWK.FaceArea")) * 0.09290304;
+                    return $"{g.Key.Face} | {g.Key.Category} | {g.Count()} pc | {areaSqM:0.##} m2";
+                })
+                .ToList();
+
+            if (rows.Count == 0)
+            {
+                rows.Add("No formwork faces available.");
+            }
+
+            return rows;
+        }
+
+        private static List<string> BuildRebarBreakdownRows(Document doc, IList<Element> elements, int maxRows)
+        {
+            List<string> rows = (elements ?? new List<Element>())
+                .Where(e => e != null)
+                .GroupBy(e => new
+                {
+                    Dia = GetShopDrawingRebarDiameterMm(doc, e),
+                    Shape = DefaultText(GetShopDrawingRebarShapeLabel(doc, e), "Shape"),
+                    Type = GetShopDrawingElementTypeName(doc, e)
+                })
+                .OrderBy(g => g.Key.Dia <= 1e-9 ? double.MaxValue : g.Key.Dia)
+                .ThenBy(g => g.Key.Shape, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(g => g.Key.Type, StringComparer.OrdinalIgnoreCase)
+                .Take(Math.Max(1, maxRows))
+                .Select(g =>
+                {
+                    double qty = g.Sum(GetShopDrawingRebarQuantity);
+                    double lengthM = g.Sum(GetShopDrawingRebarLengthFt) * 0.3048;
+                    double weightKg = g.Sum(e => EstimateShopDrawingRebarWeightKg(doc, e));
+                    string dia = g.Key.Dia > 1e-9 ? $"D{g.Key.Dia:0.#}" : "No Dia";
+                    return $"{dia} | {g.Key.Shape} | {qty:0.##} bars | {lengthM:0.##} m | {weightKg:0.##} kg";
+                })
+                .ToList();
+
+            if (rows.Count == 0)
+            {
+                rows.Add("No rebar marks available.");
+            }
+
+            return rows;
+        }
+
+        private static List<string> BuildShopDrawingQcRows(Document doc, IList<Element> elements, bool isFormwork)
+        {
+            List<Element> items = (elements ?? new List<Element>())
+                .Where(e => e != null)
+                .ToList();
+            var rows = new List<string>();
+            if (items.Count == 0)
+            {
+                rows.Add("Check: no elements found in this drawing group.");
+                return rows;
+            }
+
+            if (isFormwork)
+            {
+                int missingHost = items.Count(e => TryGetFormworkHostIdValue(e) <= 0);
+                int missingFace = items.Count(e => string.IsNullOrWhiteSpace(GetShopDrawingParameterString(e, "CBIM.FWK.FaceType")));
+                int missingArea = items.Count(e => GetShopDrawingParameterDouble(e, "CBIM.FWK.FaceArea") <= 1e-9);
+                if (missingHost > 0) rows.Add($"Check: {missingHost} formwork mark(s) have no host id.");
+                if (missingFace > 0) rows.Add($"Check: {missingFace} formwork mark(s) have no face type.");
+                if (missingArea > 0) rows.Add($"Check: {missingArea} formwork mark(s) have no measured face area.");
+                rows.Add("Verify openings, sleeves, embeds, edge shutters, and construction joints.");
+                rows.Add("Confirm face marks match pour sequence and site access.");
+            }
+            else
+            {
+                int missingHost = items.Count(e => TryGetHostedRebarHostId(e) == ElementId.InvalidElementId);
+                int missingDia = items.Count(e => GetShopDrawingRebarDiameterMm(doc, e) <= 1e-9);
+                int missingLength = items.Count(e => GetShopDrawingRebarLengthFt(e) <= 1e-9);
+                int missingShape = items.Count(e => string.IsNullOrWhiteSpace(GetShopDrawingRebarShapeLabel(doc, e)));
+                if (missingHost > 0) rows.Add($"Check: {missingHost} rebar set(s) have no host id.");
+                if (missingDia > 0) rows.Add($"Check: {missingDia} rebar set(s) have no diameter.");
+                if (missingLength > 0) rows.Add($"Check: {missingLength} rebar set(s) have no length.");
+                if (missingShape > 0) rows.Add($"Check: {missingShape} rebar set(s) have no readable shape.");
+                rows.Add("Verify cover, laps, hooks, starter bars, congestion, and splice zones.");
+                rows.Add("Confirm bar bending schedule before cutting or fixing on site.");
+            }
+
+            if (!rows.Any(r => r.StartsWith("Check:", StringComparison.OrdinalIgnoreCase)))
+            {
+                rows.Insert(0, "QC status: required mark data is present.");
+            }
+
+            return rows;
+        }
+
+        private static string BuildShopDrawingMark(Element element, string prefix, int index)
+        {
+            string mark = GetShopDrawingElementMark(element);
+            if (!string.IsNullOrWhiteSpace(mark))
+            {
+                return TruncateShopDrawingCell(mark, 12);
+            }
+
+            return $"{prefix}-{index:000}";
+        }
+
+        private static string GetShopDrawingElementMark(Element element)
+        {
+            try
+            {
+                string mark = element?.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)?.AsString();
+                if (!string.IsNullOrWhiteSpace(mark))
+                {
+                    return mark.Trim();
+                }
+            }
+            catch
+            {
+            }
+
+            return DefaultText(GetShopDrawingParameterString(element, "Mark"), "");
+        }
+
+        private static string GetShopDrawingFormworkHostLabel(Document doc, Element element)
+        {
+            long hostIdValue = TryGetFormworkHostIdValue(element);
+            if (hostIdValue <= 0)
+            {
+                return "-";
+            }
+
+            try
+            {
+                Element host = doc?.GetElement(new ElementId(hostIdValue));
+                if (host != null)
+                {
+                    return $"{AbbreviateShopDrawingCategory(host.Category?.Name)} {hostIdValue}";
+                }
+            }
+            catch
+            {
+            }
+
+            return hostIdValue.ToString(CultureInfo.InvariantCulture);
+        }
+
+        private static string BuildFormworkShopDrawingQcCode(Element element)
+        {
+            var flags = new List<string>();
+            if (TryGetFormworkHostIdValue(element) <= 0)
+            {
+                flags.Add("HOST");
+            }
+
+            if (string.IsNullOrWhiteSpace(GetShopDrawingParameterString(element, "CBIM.FWK.FaceType")))
+            {
+                flags.Add("FACE");
+            }
+
+            if (GetShopDrawingParameterDouble(element, "CBIM.FWK.FaceArea") <= 1e-9)
+            {
+                flags.Add("AREA");
+            }
+
+            return flags.Count == 0 ? "OK" : string.Join("/", flags.Take(2));
+        }
+
+        private static string BuildRebarShopDrawingQcCode(Document doc, Element element)
+        {
+            var flags = new List<string>();
+            if (TryGetHostedRebarHostId(element) == ElementId.InvalidElementId)
+            {
+                flags.Add("HOST");
+            }
+
+            if (GetShopDrawingRebarDiameterMm(doc, element) <= 1e-9)
+            {
+                flags.Add("DIA");
+            }
+
+            if (GetShopDrawingRebarLengthFt(element) <= 1e-9)
+            {
+                flags.Add("LEN");
+            }
+
+            return flags.Count == 0 ? "OK" : string.Join("/", flags.Take(2));
         }
 
         private static string TruncateShopDrawingCell(string value, int maxLength)
@@ -19728,10 +20142,52 @@ namespace CamboBIM.Revit2024.Addin
             string category = host?.Category?.Name;
             if (!string.IsNullOrWhiteSpace(category))
             {
-                return category;
+                return $"{AbbreviateShopDrawingCategory(category)} {host.Id.Value}";
             }
 
             return "Host";
+        }
+
+        private static string GetShopDrawingRebarShapeLabel(Document doc, Element rebar)
+        {
+            string direct = GetShopDrawingFirstDisplayText(
+                doc,
+                rebar,
+                "Shape",
+                "Rebar Shape",
+                "Shape Code",
+                "Shape Name",
+                "Rebar Shape Name");
+            if (!string.IsNullOrWhiteSpace(direct))
+            {
+                return TruncateShopDrawingCell(direct, 16);
+            }
+
+            try
+            {
+                MethodInfo method = rebar?.GetType().GetMethod(
+                    "GetShapeId",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                    binder: null,
+                    types: Type.EmptyTypes,
+                    modifiers: null);
+                if (method != null && typeof(ElementId).IsAssignableFrom(method.ReturnType))
+                {
+                    object value = method.Invoke(rebar, null);
+                    if (value is ElementId shapeId &&
+                        shapeId != ElementId.InvalidElementId &&
+                        doc?.GetElement(shapeId) is Element shape &&
+                        !string.IsNullOrWhiteSpace(shape.Name))
+                    {
+                        return TruncateShopDrawingCell(shape.Name, 16);
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return "";
         }
 
         private static string GetShopDrawingElementTypeName(Document doc, Element element)
@@ -19845,6 +20301,76 @@ namespace CamboBIM.Revit2024.Addin
             return 0.0;
         }
 
+        private static string GetShopDrawingFirstDisplayText(Document doc, Element element, params string[] names)
+        {
+            foreach (string name in names ?? new string[0])
+            {
+                string value = GetShopDrawingParameterDisplayText(doc, element, name);
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value.Trim();
+                }
+            }
+
+            try
+            {
+                Element type = doc?.GetElement(element?.GetTypeId());
+                foreach (string name in names ?? new string[0])
+                {
+                    string value = GetShopDrawingParameterDisplayText(doc, type, name);
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        return value.Trim();
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return "";
+        }
+
+        private static string GetShopDrawingParameterDisplayText(Document doc, Element element, string name)
+        {
+            Parameter parameter = element?.LookupParameter(name);
+            if (parameter == null)
+            {
+                return "";
+            }
+
+            try
+            {
+                if (parameter.StorageType == StorageType.String)
+                {
+                    return parameter.AsString() ?? "";
+                }
+
+                string valueText = parameter.AsValueString();
+                if (!string.IsNullOrWhiteSpace(valueText))
+                {
+                    return valueText;
+                }
+
+                if (parameter.StorageType == StorageType.ElementId)
+                {
+                    ElementId id = parameter.AsElementId();
+                    if (id != null &&
+                        id != ElementId.InvalidElementId &&
+                        doc?.GetElement(id) is Element linkedElement &&
+                        !string.IsNullOrWhiteSpace(linkedElement.Name))
+                    {
+                        return linkedElement.Name;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return GetShopDrawingParameterString(element, name);
+        }
+
         private static double GetShopDrawingParameterDouble(Element element, string name)
         {
             Parameter parameter = element?.LookupParameter(name);
@@ -19937,6 +20463,7 @@ namespace CamboBIM.Revit2024.Addin
             if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path))
             {
                 _window?.ShowStatus("ADAPT CAD: source DWG/DXF was not found.");
+                WriteAdaptCadImportReport(doc, path, "Failed", "Source file was not found.", null, 0);
                 return;
             }
 
@@ -19945,6 +20472,7 @@ namespace CamboBIM.Revit2024.Addin
                 !string.Equals(ext, ".dxf", StringComparison.OrdinalIgnoreCase))
             {
                 _window?.ShowStatus("ADAPT CAD: select a DWG or DXF exported from ADAPT-Builder.");
+                WriteAdaptCadImportReport(doc, path, "Failed", "Source extension is not DWG/DXF.", null, 0);
                 return;
             }
 
@@ -19952,7 +20480,42 @@ namespace CamboBIM.Revit2024.Addin
             if (!IsAdaptCadImportView(view))
             {
                 _window?.ShowStatus("ADAPT CAD: open a plan, drafting, section, elevation, or 3D view before linking the ADAPT drawing.");
+                WriteAdaptCadImportReport(doc, path, "Failed", "Active view is not valid for DWG/DXF import.", null, 0);
                 return;
+            }
+
+            if (TryFindExistingAdaptCadImport(doc, path, out ImportInstance existingCad))
+            {
+                AdaptExistingCadChoice choice = AskExistingAdaptCadChoice(existingCad, path);
+                if (choice == AdaptExistingCadChoice.Cancel)
+                {
+                    _window?.ShowStatus("ADAPT CAD: cancelled because an existing import/link was found.");
+                    WriteAdaptCadImportReport(doc, path, "Cancelled", "Existing ADAPT CAD was found and user cancelled.", existingCad, 0);
+                    return;
+                }
+
+                if (choice == AdaptExistingCadChoice.Reuse)
+                {
+                    Request.SelectedLinkId = existingCad.Id;
+                    List<string> existingLayers = CollectCadLayers(doc, existingCad);
+                    AdaptCadLayerAnalysis existingAnalysis = AnalyzeAdaptCadLayers(doc, existingCad);
+                    _window?.UpdateLink(existingCad.Name, existingLayers);
+                    WriteAdaptCadImportReport(
+                        doc,
+                        path,
+                        "Reused",
+                        "Existing ADAPT CAD source selected.",
+                        existingCad,
+                        existingLayers.Count,
+                        existingAnalysis.BuildReportText());
+                    _window?.ShowStatus(
+                        "ADAPT CAD: reused existing CAD source " +
+                        existingCad.Name +
+                        ". Layers: " +
+                        existingLayers.Count.ToString(CultureInfo.InvariantCulture) +
+                        existingAnalysis.BuildStatusSuffix());
+                    return;
+                }
             }
 
             ElementId cadId = ElementId.InvalidElementId;
@@ -19960,13 +20523,18 @@ namespace CamboBIM.Revit2024.Addin
             bool imported = false;
             string linkError = "";
 
-            using (Transaction t = new Transaction(doc, "CamboBIM - Link ADAPT CAD Drawing"))
+            bool preferLink = Request.AdaptCadImportMode != AdaptCadImportMode.ImportOnly;
+            string transactionName = preferLink
+                ? "CamboBIM - Link ADAPT CAD Drawing"
+                : "CamboBIM - Import ADAPT CAD Drawing";
+
+            using (Transaction t = new Transaction(doc, transactionName))
             {
                 t.Start();
 
                 DWGImportOptions options = CreateAdaptCadImportOptions();
 
-                if (!doc.IsFamilyDocument)
+                if (preferLink && !doc.IsFamilyDocument)
                 {
                     try
                     {
@@ -19992,6 +20560,7 @@ namespace CamboBIM.Revit2024.Addin
                             ? ex.Message
                             : "link failed: " + linkError + "; import failed: " + ex.Message;
                         _window?.ShowStatus("ADAPT CAD import failed: " + detail);
+                        WriteAdaptCadImportReport(doc, path, "Failed", detail, null, 0);
                         return;
                     }
                 }
@@ -20000,8 +20569,12 @@ namespace CamboBIM.Revit2024.Addin
                 {
                     t.RollBack();
                     _window?.ShowStatus("ADAPT CAD import failed: Revit did not return a CAD instance.");
+                    WriteAdaptCadImportReport(doc, path, "Failed", "Revit did not return a CAD instance.", null, 0);
                     return;
                 }
+
+                ImportInstance transactionCad = doc.GetElement(cadId) as ImportInstance;
+                SetAdaptCadMetadata(transactionCad, path, linked);
 
                 t.Commit();
             }
@@ -20010,18 +20583,112 @@ namespace CamboBIM.Revit2024.Addin
             if (cad == null)
             {
                 _window?.ShowStatus("ADAPT CAD: drawing was added, but the CAD instance could not be selected for CAD2MODEL.");
+                WriteAdaptCadImportReport(doc, path, "Failed", "CAD instance was added but could not be resolved after commit.", null, 0);
                 return;
             }
 
             Request.SelectedLinkId = cad.Id;
             List<string> layers = CollectCadLayers(doc, cad);
+            AdaptCadLayerAnalysis analysis = AnalyzeAdaptCadLayers(doc, cad);
             _window?.UpdateLink(cad.Name, layers);
 
             string action = linked ? "linked" : "imported";
+            string layerMessage = layers.Count > 0
+                ? " Layers: " + layers.Count.ToString(CultureInfo.InvariantCulture) + "."
+                : " No readable CAD layers found; check the ADAPT export visibility/content.";
+            WriteAdaptCadImportReport(doc, path, action, "CAD source selected for CAD2MODEL.", cad, layers.Count, analysis.BuildReportText());
             _window?.ShowStatus(
                 "ADAPT CAD: " + action + " " + System.IO.Path.GetFileName(path) +
-                " at project origin and selected it as the CAD2MODEL source. Layers: " +
-                layers.Count.ToString(CultureInfo.InvariantCulture) + ".");
+                " at project origin and selected it as the CAD2MODEL source." +
+                layerMessage +
+                analysis.BuildStatusSuffix());
+        }
+
+        private enum AdaptExistingCadChoice
+        {
+            Reuse,
+            ImportAnother,
+            Cancel
+        }
+
+        private static AdaptExistingCadChoice AskExistingAdaptCadChoice(ImportInstance cad, string sourcePath)
+        {
+            try
+            {
+                TaskDialog dialog = new TaskDialog("DRAWING PT");
+                dialog.MainInstruction = "This ADAPT CAD export is already in the model.";
+                dialog.MainContent =
+                    "Source: " + System.IO.Path.GetFileName(sourcePath) + Environment.NewLine +
+                    "Existing CAD: " + (cad?.Name ?? "(unnamed)") + Environment.NewLine + Environment.NewLine +
+                    "Choose how to continue.";
+                dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Use existing CAD source");
+                dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Import another copy");
+                dialog.CommonButtons = TaskDialogCommonButtons.Cancel;
+
+                TaskDialogResult result = dialog.Show();
+                if (result == TaskDialogResult.CommandLink1)
+                {
+                    return AdaptExistingCadChoice.Reuse;
+                }
+
+                if (result == TaskDialogResult.CommandLink2)
+                {
+                    return AdaptExistingCadChoice.ImportAnother;
+                }
+            }
+            catch
+            {
+            }
+
+            return AdaptExistingCadChoice.Cancel;
+        }
+
+        private static bool TryFindExistingAdaptCadImport(Document doc, string sourcePath, out ImportInstance cad)
+        {
+            cad = null;
+            if (doc == null || string.IsNullOrWhiteSpace(sourcePath))
+            {
+                return false;
+            }
+
+            string sourceName = System.IO.Path.GetFileName(sourcePath) ?? "";
+            string fullPath = "";
+            try
+            {
+                fullPath = System.IO.Path.GetFullPath(sourcePath);
+            }
+            catch
+            {
+            }
+
+            foreach (ImportInstance candidate in new FilteredElementCollector(doc)
+                         .OfClass(typeof(ImportInstance))
+                         .Cast<ImportInstance>())
+            {
+                if (candidate == null)
+                {
+                    continue;
+                }
+
+                string metadata = GetAdaptCadMetadata(candidate);
+                bool markedAdapt = metadata.IndexOf("ADAPT PT CAD", StringComparison.OrdinalIgnoreCase) >= 0;
+                bool matchesPath = !string.IsNullOrWhiteSpace(fullPath) &&
+                    metadata.IndexOf(fullPath, StringComparison.OrdinalIgnoreCase) >= 0;
+                bool matchesName = !string.IsNullOrWhiteSpace(sourceName) &&
+                    (metadata.IndexOf(sourceName, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     (candidate.Name ?? "").IndexOf(sourceName, StringComparison.OrdinalIgnoreCase) >= 0);
+                bool potentialLegacyMatch = !markedAdapt &&
+                    !string.IsNullOrWhiteSpace(sourceName) &&
+                    (candidate.Name ?? "").IndexOf(sourceName, StringComparison.OrdinalIgnoreCase) >= 0;
+
+                if ((markedAdapt && (matchesPath || matchesName)) || potentialLegacyMatch)
+                {
+                    cad = candidate;
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool IsAdaptCadImportView(View view)
@@ -20043,6 +20710,308 @@ namespace CamboBIM.Revit2024.Addin
                 VisibleLayersOnly = false,
                 AutoCorrectAlmostVHLines = true
             };
+        }
+
+        private static void SetAdaptCadMetadata(ImportInstance cad, string sourcePath, bool linked)
+        {
+            if (cad == null)
+            {
+                return;
+            }
+
+            string source = string.IsNullOrWhiteSpace(sourcePath)
+                ? ""
+                : System.IO.Path.GetFileName(sourcePath);
+            string value = "ADAPT PT CAD | " + (linked ? "Linked" : "Imported");
+            if (!string.IsNullOrWhiteSpace(source))
+            {
+                value += " | Source=" + source;
+            }
+
+            if (!string.IsNullOrWhiteSpace(sourcePath))
+            {
+                value += " | Path=" + sourcePath;
+            }
+
+            try
+            {
+                Parameter comments = cad.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS);
+                if (comments != null && !comments.IsReadOnly)
+                {
+                    comments.Set(value);
+                    return;
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                Parameter comments = cad.LookupParameter("Comments");
+                if (comments != null && !comments.IsReadOnly)
+                {
+                    comments.Set(value);
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static string GetAdaptCadMetadata(ImportInstance cad)
+        {
+            if (cad == null)
+            {
+                return "";
+            }
+
+            try
+            {
+                Parameter comments = cad.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS);
+                if (comments != null)
+                {
+                    return comments.AsString() ?? "";
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                Parameter comments = cad.LookupParameter("Comments");
+                if (comments != null)
+                {
+                    return comments.AsString() ?? "";
+                }
+            }
+            catch
+            {
+            }
+
+            return "";
+        }
+
+        private sealed class AdaptCadLayerAnalysis
+        {
+            public int GeometryObjectCount { get; set; }
+            public List<string> CandidateLayers { get; } = new List<string>();
+            public List<string> TopLayers { get; } = new List<string>();
+
+            public string BuildStatusSuffix()
+            {
+                if (CandidateLayers.Count > 0)
+                {
+                    return " PT layer candidate(s): " + string.Join(", ", CandidateLayers.Take(3)) + ".";
+                }
+
+                if (TopLayers.Count > 0)
+                {
+                    return " No obvious PT layer name found. Top layer(s): " + string.Join(", ", TopLayers.Take(3)) + ".";
+                }
+
+                return "";
+            }
+
+            public string BuildReportText()
+            {
+                return "GeometryObjectCount=" + GeometryObjectCount.ToString(CultureInfo.InvariantCulture) +
+                       "; CandidateLayers=" + string.Join("|", CandidateLayers) +
+                       "; TopLayers=" + string.Join("|", TopLayers);
+            }
+        }
+
+        private static AdaptCadLayerAnalysis AnalyzeAdaptCadLayers(Document doc, ImportInstance cad)
+        {
+            var analysis = new AdaptCadLayerAnalysis();
+            Dictionary<string, int> counts = CollectCadLayerObjectCounts(doc, cad);
+            analysis.GeometryObjectCount = counts.Values.Sum();
+
+            foreach (string layer in counts
+                         .OrderByDescending(pair => ScoreAdaptPtLayerName(pair.Key))
+                         .ThenByDescending(pair => pair.Value)
+                         .ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                         .Where(pair => ScoreAdaptPtLayerName(pair.Key) > 0)
+                         .Select(pair => pair.Key)
+                         .Take(5))
+            {
+                analysis.CandidateLayers.Add(layer);
+            }
+
+            foreach (string layer in counts
+                         .OrderByDescending(pair => pair.Value)
+                         .ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                         .Select(pair => pair.Key)
+                         .Take(5))
+            {
+                analysis.TopLayers.Add(layer);
+            }
+
+            return analysis;
+        }
+
+        private static Dictionary<string, int> CollectCadLayerObjectCounts(Document doc, ImportInstance cad)
+        {
+            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            if (doc == null || cad == null)
+            {
+                return counts;
+            }
+
+            Options opt = new Options
+            {
+                ComputeReferences = false,
+                DetailLevel = ViewDetailLevel.Fine,
+                IncludeNonVisibleObjects = true
+            };
+
+            GeometryElement ge = cad.get_Geometry(opt);
+            if (ge == null)
+            {
+                return counts;
+            }
+
+            foreach (GeometryObject go in ge)
+            {
+                CollectLayerObjectCountsFromGeom(doc, go, counts);
+            }
+
+            return counts;
+        }
+
+        private static void CollectLayerObjectCountsFromGeom(Document doc, GeometryObject go, Dictionary<string, int> counts)
+        {
+            if (go == null || counts == null)
+            {
+                return;
+            }
+
+            GeometryInstance gi = go as GeometryInstance;
+            if (gi != null)
+            {
+                GeometryElement instGeom = GetCadSymbolGeometry(gi);
+                if (instGeom != null)
+                {
+                    foreach (GeometryObject igo in instGeom)
+                    {
+                        CollectLayerObjectCountsFromGeom(doc, igo, counts);
+                    }
+                }
+
+                return;
+            }
+
+            string layer = GetCadLayer(doc, go);
+            if (string.IsNullOrWhiteSpace(layer))
+            {
+                return;
+            }
+
+            counts.TryGetValue(layer, out int current);
+            counts[layer] = current + 1;
+        }
+
+        private static int ScoreAdaptPtLayerName(string layer)
+        {
+            string token = NormalizeAdaptLayerName(layer);
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                return 0;
+            }
+
+            int score = 0;
+            if (token.Contains("posttension")) score += 12;
+            if (token.Contains("prestress")) score += 10;
+            if (token.Contains("tendon")) score += 10;
+            if (token.Contains("tend")) score += 6;
+            if (token.Contains("cable")) score += 6;
+            if (token.Contains("strand")) score += 6;
+            if (token.Contains("duct")) score += 5;
+            if (token.Contains("profile")) score += 5;
+            if (token.Contains("cgs")) score += 5;
+            if (token.Contains("banded")) score += 4;
+            if (token.Contains("distributed")) score += 4;
+            if (token.Contains("pt") && token.Length <= 18) score += 4;
+            if (token.Contains("rebar") || token.Contains("column") || token.Contains("wall") || token.Contains("beam")) score -= 4;
+            return Math.Max(0, score);
+        }
+
+        private static string NormalizeAdaptLayerName(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return "";
+            }
+
+            return Regex.Replace(value.ToLowerInvariant(), @"[^a-z0-9]+", "");
+        }
+
+        private static void WriteAdaptCadImportReport(
+            Document doc,
+            string sourcePath,
+            string action,
+            string detail,
+            ImportInstance cad,
+            int layerCount,
+            string analysis = "")
+        {
+            try
+            {
+                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                if (string.IsNullOrWhiteSpace(appData))
+                {
+                    return;
+                }
+
+                string directory = System.IO.Path.Combine(appData, "MHNK", "RevitExtension", "DRAWING_PT", "Reports");
+                System.IO.Directory.CreateDirectory(directory);
+                string reportPath = System.IO.Path.Combine(
+                    directory,
+                    "adapt-cad-import-" + DateTime.Now.ToString("yyyyMMdd", CultureInfo.InvariantCulture) + ".log");
+
+                var lines = new List<string>
+                {
+                    "Time=" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                    "Document=" + (doc?.Title ?? ""),
+                    "Action=" + (action ?? ""),
+                    "Source=" + (sourcePath ?? ""),
+                    "CadElementId=" + (cad == null ? "" : cad.Id.ToString()),
+                    "CadName=" + (cad?.Name ?? ""),
+                    "LayerCount=" + layerCount.ToString(CultureInfo.InvariantCulture),
+                    "Analysis=" + (analysis ?? ""),
+                    "Detail=" + (detail ?? ""),
+                    ""
+                };
+
+                System.IO.File.AppendAllLines(reportPath, lines, System.Text.Encoding.UTF8);
+            }
+            catch
+            {
+            }
+        }
+
+        private sealed class AdaptImportFailurePreprocessor : IFailuresPreprocessor
+        {
+            public FailureProcessingResult PreprocessFailures(FailuresAccessor failuresAccessor)
+            {
+                try
+                {
+                    IList<FailureMessageAccessor> failures = failuresAccessor.GetFailureMessages();
+                    foreach (FailureMessageAccessor failure in failures)
+                    {
+                        if (failure != null && failure.GetSeverity() == FailureSeverity.Warning)
+                        {
+                            failuresAccessor.DeleteWarning(failure);
+                        }
+                    }
+                }
+                catch
+                {
+                }
+
+                return FailureProcessingResult.Continue;
+            }
         }
 
         private void ImportAdaptTendonProfiles(Document doc)
@@ -20069,10 +21038,16 @@ namespace CamboBIM.Revit2024.Addin
 
             int created = 0;
             int skipped = 0;
+            int replaced = 0;
 
             using (Transaction t = new Transaction(doc, "CamboBIM - Import ADAPT Tendon Profiles"))
             {
                 t.Start();
+                FailureHandlingOptions failureOptions = t.GetFailureHandlingOptions();
+                failureOptions.SetFailuresPreprocessor(new AdaptImportFailurePreprocessor());
+                t.SetFailureHandlingOptions(failureOptions);
+
+                replaced = DeleteExistingAdaptTendonProfilesFromSource(doc, Request.AdaptTendonSourcePath);
 
                 GraphicsStyle lineStyle = EnsureAdaptTendonLineStyle(doc);
 
@@ -20138,7 +21113,72 @@ namespace CamboBIM.Revit2024.Addin
                 "ADAPT import: created " +
                 created.ToString(CultureInfo.InvariantCulture) +
                 " " + mode + "(s)" + source +
+                ". Replaced: " + replaced.ToString(CultureInfo.InvariantCulture) +
                 ". Skipped: " + skipped.ToString(CultureInfo.InvariantCulture) + ".");
+        }
+
+        private static int DeleteExistingAdaptTendonProfilesFromSource(Document doc, string sourcePath)
+        {
+            if (doc == null || string.IsNullOrWhiteSpace(sourcePath))
+            {
+                return 0;
+            }
+
+            string sourceName = System.IO.Path.GetFileName(sourcePath) ?? "";
+            if (string.IsNullOrWhiteSpace(sourceName))
+            {
+                return 0;
+            }
+
+            List<ElementId> ids = new FilteredElementCollector(doc)
+                .OfClass(typeof(CurveElement))
+                .Cast<CurveElement>()
+                .Where(element =>
+                {
+                    string comments = GetElementComments(element);
+                    return comments.IndexOf("ADAPT Tendon Profile", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                           comments.IndexOf(sourceName, StringComparison.OrdinalIgnoreCase) >= 0;
+                })
+                .Select(element => element.Id)
+                .ToList();
+
+            if (ids.Count == 0)
+            {
+                return 0;
+            }
+
+            try
+            {
+                ICollection<ElementId> deleted = doc.Delete(ids);
+                return deleted?.Count ?? ids.Count;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        private static string GetElementComments(Element element)
+        {
+            if (element == null)
+            {
+                return "";
+            }
+
+            try
+            {
+                Parameter comments = element.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS);
+                if (comments == null)
+                {
+                    comments = element.LookupParameter("Comments");
+                }
+
+                return comments?.AsString() ?? "";
+            }
+            catch
+            {
+                return "";
+            }
         }
 
         private static Line CreateAdaptModelLine(AdaptTendonProfileSegmentPayload segment)

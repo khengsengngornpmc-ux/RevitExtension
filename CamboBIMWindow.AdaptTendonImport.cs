@@ -12,7 +12,11 @@ namespace CamboBIM.Revit2024.Addin
 {
     public partial class CamboBIMWindow
     {
-        private static string _adaptLastFolder = "";
+        private const string AdaptSettingsDirectoryName = "DRAWING_PT";
+        private const string AdaptSettingsFileName = "adapt-import.settings";
+        private static string _adaptLastFolder = LoadAdaptSettingValue("LastFolder");
+        private static string _adaptLastProjectPath = LoadAdaptSettingValue("LastProject");
+        private static AdaptCadImportMode _adaptCadImportMode = LoadAdaptCadImportMode();
 
         private enum AdaptTendonLengthUnit
         {
@@ -45,6 +49,35 @@ namespace CamboBIM.Revit2024.Addin
             public double XFt { get; set; }
             public double YFt { get; set; }
             public double ZFt { get; set; }
+        }
+
+        private sealed class AdaptAdmPoint
+        {
+            public double X { get; set; }
+            public double Y { get; set; }
+            public double Z { get; set; }
+        }
+
+        private sealed class AdaptAdmTendonRecord
+        {
+            public string LayerToken { get; set; } = "";
+            public string LayerName { get; set; } = "";
+            public string TendonName { get; set; } = "";
+            public List<AdaptAdmPoint> Points { get; } = new List<AdaptAdmPoint>();
+        }
+
+        private sealed class AdaptAdmPointBlock
+        {
+            public int CountOffset { get; set; }
+            public int EndOffset { get; set; }
+            public double PathLength { get; set; }
+            public double MinX { get; set; }
+            public double MaxX { get; set; }
+            public double MinY { get; set; }
+            public double MaxY { get; set; }
+            public double MinZ { get; set; }
+            public double MaxZ { get; set; }
+            public List<AdaptAdmPoint> Points { get; } = new List<AdaptAdmPoint>();
         }
 
         private sealed class AdaptTendonHeaderMap
@@ -112,7 +145,7 @@ namespace CamboBIM.Revit2024.Addin
 
                 if (IsAdaptProjectPath(selectedPath))
                 {
-                    OfferAdaptBuilderHandoff(selectedPath);
+                    HandleAdaptProjectWithoutLaunchingBuilder(selectedPath);
                     return;
                 }
 
@@ -129,26 +162,27 @@ namespace CamboBIM.Revit2024.Addin
                     return;
                 }
 
-                _handler.Request.AdaptTendonSourcePath = selectedPath;
-                _handler.Request.AdaptTendonImportMode = result.Mode;
-                _handler.Request.AdaptTendonProfileSegments = result.Segments;
-                _handler.Request.RequestType = CadToModelRequestType.ImportAdaptTendonProfiles;
-                _externalEvent.Raise();
-
-                string modeText = result.Mode == AdaptTendonImportMode.Model3D ? "3D model lines" : "profile detail lines";
-                ShowStatus(
-                    "ADAPT import: queued " +
-                    result.Segments.Count.ToString(CultureInfo.InvariantCulture) +
-                    " segment(s) from " + Path.GetFileName(selectedPath) +
-                    " as " + modeText +
-                    " (profiles: " + result.ProfileCount.ToString(CultureInfo.InvariantCulture) +
-                    ", points: " + result.PointCount.ToString(CultureInfo.InvariantCulture) +
-                    ", units: " + DescribeAdaptUnit(result.InferredUnit) + ").");
+                QueueAdaptTendonProfileImport(selectedPath, result, "ADAPT import");
             }
             catch (Exception ex)
             {
                 ShowStatus("ADAPT import failed: " + ex.Message);
             }
+        }
+
+        internal void StartAdaptImportFromRibbon()
+        {
+            Dispatcher.BeginInvoke(
+                new Action(() =>
+                {
+                    if (TryOfferRecentAdaptProjectCadExport())
+                    {
+                        return;
+                    }
+
+                    OnCad2ModelTasRibbonImportAdaptClick(this, new RoutedEventArgs());
+                }),
+                System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         }
 
         private void QueueAdaptCadDrawingImport(string path)
@@ -159,25 +193,150 @@ namespace CamboBIM.Revit2024.Addin
                 return;
             }
 
+            if (!TryChooseAdaptCadImportMode(path, out AdaptCadImportMode importMode))
+            {
+                ShowStatus("DRAWING PT: CAD import cancelled.");
+                return;
+            }
+
+            RememberAdaptPath(path);
             _handler.Request.AdaptCadSourcePath = path;
+            _handler.Request.AdaptCadImportMode = importMode;
             _handler.Request.AdaptTendonSourcePath = "";
             _handler.Request.AdaptTendonProfileSegments = new List<AdaptTendonProfileSegmentPayload>();
             _handler.Request.RequestType = CadToModelRequestType.ImportAdaptCadDrawing;
             _externalEvent.Raise();
 
-            ShowStatus("ADAPT CAD: queued link/import for " + Path.GetFileName(path) + ".");
+            ShowStatus("ADAPT CAD: queued " + DescribeAdaptCadImportMode(importMode) + " for " + Path.GetFileName(path) + ".");
         }
 
-        private void OfferAdaptBuilderHandoff(string path)
+        private void QueueAdaptTendonProfileImport(string path, AdaptTendonImportReadResult result, string statusPrefix)
+        {
+            if (_handler == null || _externalEvent == null)
+            {
+                ShowStatus("ADAPT import is available only inside Revit.");
+                return;
+            }
+
+            if (result == null || result.Segments.Count == 0)
+            {
+                ShowStatus("ADAPT import: no tendon/profile segments found.");
+                return;
+            }
+
+            _handler.Request.AdaptTendonSourcePath = path;
+            _handler.Request.AdaptTendonImportMode = result.Mode;
+            _handler.Request.AdaptTendonProfileSegments = result.Segments;
+            _handler.Request.AdaptCadSourcePath = "";
+            _handler.Request.RequestType = CadToModelRequestType.ImportAdaptTendonProfiles;
+            _externalEvent.Raise();
+
+            string modeText = IsAdaptProjectPath(path)
+                ? "3D tendon profile segments"
+                : (result.Mode == AdaptTendonImportMode.Model3D ? "3D model lines" : "profile detail lines");
+            string prefix = string.IsNullOrWhiteSpace(statusPrefix) ? "ADAPT import" : statusPrefix.Trim();
+            ShowStatus(
+                prefix + ": queued " +
+                result.Segments.Count.ToString(CultureInfo.InvariantCulture) +
+                " segment(s) from " + Path.GetFileName(path) +
+                " as " + modeText +
+                " (profiles: " + result.ProfileCount.ToString(CultureInfo.InvariantCulture) +
+                ", points: " + result.PointCount.ToString(CultureInfo.InvariantCulture) +
+                ", units: " + DescribeAdaptUnit(result.InferredUnit) + ").");
+        }
+
+        private bool TryChooseAdaptCadImportMode(string path, out AdaptCadImportMode importMode)
+        {
+            importMode = _adaptCadImportMode;
+            string fileName = Path.GetFileName(path);
+            string currentMode = DescribeAdaptCadImportMode(_adaptCadImportMode);
+            MessageBoxResult result = MessageBox.Show(
+                this,
+                "How should DRAWING PT bring this ADAPT CAD export into Revit?\n\n" +
+                fileName +
+                "\n\nYes = Link DWG/DXF (recommended, keeps source external)\nNo = Import DWG/DXF into the model\nCancel = stop\n\nCurrent saved preference: " + currentMode + ".",
+                "DRAWING PT CAD Mode",
+                MessageBoxButton.YesNoCancel,
+                MessageBoxImage.Question,
+                _adaptCadImportMode == AdaptCadImportMode.ImportOnly ? MessageBoxResult.No : MessageBoxResult.Yes);
+
+            if (result == MessageBoxResult.Cancel)
+            {
+                return false;
+            }
+
+            importMode = result == MessageBoxResult.No
+                ? AdaptCadImportMode.ImportOnly
+                : AdaptCadImportMode.LinkPreferred;
+            _adaptCadImportMode = importMode;
+            SaveAdaptSettings();
+            return true;
+        }
+
+        private bool TryOfferRecentAdaptProjectCadExport()
+        {
+            EnsureAdaptSettingsLoaded();
+            if (string.IsNullOrWhiteSpace(_adaptLastProjectPath) ||
+                !File.Exists(_adaptLastProjectPath) ||
+                !TryFindLatestAdaptCadExport(_adaptLastProjectPath, out string exportPath))
+            {
+                return false;
+            }
+
+            FileInfo exportInfo = new FileInfo(exportPath);
+            string projectName = Path.GetFileName(_adaptLastProjectPath);
+            string exportFreshness = BuildAdaptExportFreshnessNote(_adaptLastProjectPath, exportInfo);
+            MessageBoxResult result = MessageBox.Show(
+                this,
+                "Use the latest CAD export from the previous ADAPT project?\n\n" +
+                "Project: " + projectName +
+                "\nExport: " + Path.GetFileName(exportPath) +
+                "\nModified: " + exportInfo.LastWriteTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) +
+                exportFreshness +
+                "\n\nYes = import this export\nNo = choose another ADAPT file\nCancel = stop",
+                "DRAWING PT",
+                MessageBoxButton.YesNoCancel,
+                MessageBoxImage.Question);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                QueueAdaptCadDrawingImport(exportPath);
+                return true;
+            }
+
+            if (result == MessageBoxResult.Cancel)
+            {
+                ShowStatus("DRAWING PT: cancelled.");
+                return true;
+            }
+
+            return false;
+        }
+
+        private void HandleAdaptProjectWithoutLaunchingBuilder(string path)
         {
             string fileName = Path.GetFileName(path);
+            try
+            {
+                AdaptTendonImportReadResult result = ReadAdaptAdmTendonGeometry(path);
+                if (result.Segments.Count > 0)
+                {
+                    QueueAdaptTendonProfileImport(path, result, "ADAPT ADM direct import");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowStatus("ADAPT ADM direct import did not find usable tendon geometry: " + ex.Message);
+            }
+
             if (TryFindLatestAdaptCadExport(path, out string exportPath))
             {
                 FileInfo exportInfo = new FileInfo(exportPath);
                 string exportFreshness = BuildAdaptExportFreshnessNote(path, exportInfo);
                 MessageBoxResult importExisting = MessageBox.Show(
                     this,
-                    "Found a CAD export near this ADAPT project:\n\n" +
+                    "Direct .adm import did not find usable tendon geometry, but a CAD export was found near this ADAPT project:\n\n" +
                     Path.GetFileName(exportPath) +
                     "\nModified: " + exportInfo.LastWriteTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) +
                     exportFreshness +
@@ -193,103 +352,17 @@ namespace CamboBIM.Revit2024.Addin
                 }
             }
 
-            MessageBoxResult result = MessageBox.Show(
+            MessageBox.Show(
                 this,
-                "ADAPT project files cannot be read directly by Revit.\n\nOpen this model in ADAPT-Builder now?\n\nAfter it opens, export the tendon/profile drawing as DWG/DXF, then return to Revit and click Import ADAPT again.",
-                "Open ADAPT-Builder",
-                MessageBoxButton.YesNo,
+                "DRAWING PT does not open ADAPT-Builder.\n\n" +
+                "Direct .adm import did not find usable tendon geometry and no nearby DWG/DXF export was found for:\n" +
+                fileName +
+                "\n\nSelect an ADAPT-exported DWG/DXF or tendon/profile table instead.",
+                "DRAWING PT",
+                MessageBoxButton.OK,
                 MessageBoxImage.Information);
 
-            if (result != MessageBoxResult.Yes)
-            {
-                ShowStatus("ADAPT handoff: export " + fileName + " from ADAPT-Builder as DWG/DXF, then use Import ADAPT again.");
-                return;
-            }
-
-            if (TryOpenAdaptBuilderProject(path, out string status))
-            {
-                ShowStatus(status);
-            }
-            else
-            {
-                ShowStatus("ADAPT handoff failed: " + status);
-            }
-        }
-
-        private static bool TryOpenAdaptBuilderProject(string path, out string status)
-        {
-            string fileName = Path.GetFileName(path);
-            try
-            {
-                var shellStart = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = path,
-                    UseShellExecute = true
-                };
-                System.Diagnostics.Process.Start(shellStart);
-                status = "ADAPT handoff: opened " + fileName + ". Export DWG/DXF, then run Import ADAPT again.";
-                return true;
-            }
-            catch
-            {
-            }
-
-            string builderPath = FindAdaptBuilderExecutable();
-            if (string.IsNullOrWhiteSpace(builderPath))
-            {
-                status = "ADAPT-Builder was not found. Open the .adm manually, export DWG/DXF, then run Import ADAPT again.";
-                return false;
-            }
-
-            try
-            {
-                var builderStart = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = builderPath,
-                    Arguments = QuoteAdaptCommandArgument(path),
-                    WorkingDirectory = Path.GetDirectoryName(builderPath),
-                    UseShellExecute = false
-                };
-                System.Diagnostics.Process.Start(builderStart);
-                status = "ADAPT handoff: opened " + fileName + " in ADAPT-Builder. Export DWG/DXF, then run Import ADAPT again.";
-                return true;
-            }
-            catch (Exception ex)
-            {
-                status = ex.Message;
-                return false;
-            }
-        }
-
-        private static string FindAdaptBuilderExecutable()
-        {
-            string[] candidates =
-            {
-                @"C:\Program Files (x86)\ADAPT\ADAPT-Builder 2018\builder.exe",
-                @"C:\Program Files (x86)\ADAPT\ADAPT-Builder 2019\builder.exe",
-                @"C:\Program Files\ADAPT\ADAPT-Builder 2018\builder.exe",
-                @"C:\Program Files\ADAPT\ADAPT-Builder 2019\builder.exe"
-            };
-
-            foreach (string candidate in candidates)
-            {
-                if (File.Exists(candidate))
-                {
-                    return candidate;
-                }
-            }
-
-            return "";
-        }
-
-        private static string QuoteAdaptCommandArgument(string value)
-        {
-            if (string.IsNullOrEmpty(value))
-            {
-                return "\"\"";
-            }
-
-            return "\"" + value.Replace("\"", "\\\"") + "\"";
+            ShowStatus("DRAWING PT: no direct .adm tendon geometry or nearby DWG/DXF export found for " + fileName + ".");
         }
 
         private static bool IsAdaptProjectPath(string path)
@@ -327,6 +400,13 @@ namespace CamboBIM.Revit2024.Addin
                 {
                     _adaptLastFolder = directory;
                 }
+
+                if (IsAdaptProjectPath(path))
+                {
+                    _adaptLastProjectPath = path;
+                }
+
+                SaveAdaptSettings();
             }
             catch
             {
@@ -335,12 +415,120 @@ namespace CamboBIM.Revit2024.Addin
 
         private static string GetAdaptInitialDirectory()
         {
+            EnsureAdaptSettingsLoaded();
             if (!string.IsNullOrWhiteSpace(_adaptLastFolder) && Directory.Exists(_adaptLastFolder))
             {
                 return _adaptLastFolder;
             }
 
             return "";
+        }
+
+        private static void EnsureAdaptSettingsLoaded()
+        {
+            if (string.IsNullOrWhiteSpace(_adaptLastFolder))
+            {
+                _adaptLastFolder = LoadAdaptSettingValue("LastFolder");
+            }
+
+            if (string.IsNullOrWhiteSpace(_adaptLastProjectPath))
+            {
+                _adaptLastProjectPath = LoadAdaptSettingValue("LastProject");
+            }
+
+            _adaptCadImportMode = LoadAdaptCadImportMode();
+        }
+
+        private static AdaptCadImportMode LoadAdaptCadImportMode()
+        {
+            string value = LoadAdaptSettingValue("CadImportMode");
+            return string.Equals(value, "ImportOnly", StringComparison.OrdinalIgnoreCase)
+                ? AdaptCadImportMode.ImportOnly
+                : AdaptCadImportMode.LinkPreferred;
+        }
+
+        private static string LoadAdaptSettingValue(string key)
+        {
+            try
+            {
+                string settingsPath = GetAdaptSettingsPath();
+                if (string.IsNullOrWhiteSpace(settingsPath) || !File.Exists(settingsPath))
+                {
+                    return "";
+                }
+
+                string prefix = key + "=";
+                foreach (string line in File.ReadAllLines(settingsPath, Encoding.UTF8))
+                {
+                    if (line != null && line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        string value = line.Substring(prefix.Length).Trim();
+                        if (string.Equals(key, "LastFolder", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return Directory.Exists(value) ? value : "";
+                        }
+
+                        if (string.Equals(key, "LastProject", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return File.Exists(value) ? value : "";
+                        }
+
+                        return value;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return "";
+        }
+
+        private static void SaveAdaptSettings()
+        {
+            try
+            {
+                string settingsPath = GetAdaptSettingsPath();
+                if (string.IsNullOrWhiteSpace(settingsPath))
+                {
+                    return;
+                }
+
+                string directory = Path.GetDirectoryName(settingsPath);
+                if (!string.IsNullOrWhiteSpace(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                var lines = new List<string>();
+                if (!string.IsNullOrWhiteSpace(_adaptLastFolder) && Directory.Exists(_adaptLastFolder))
+                {
+                    lines.Add("LastFolder=" + _adaptLastFolder);
+                }
+
+                if (!string.IsNullOrWhiteSpace(_adaptLastProjectPath) && File.Exists(_adaptLastProjectPath))
+                {
+                    lines.Add("LastProject=" + _adaptLastProjectPath);
+                }
+
+                lines.Add("CadImportMode=" + _adaptCadImportMode);
+
+                File.WriteAllLines(settingsPath, lines, Encoding.UTF8);
+            }
+            catch
+            {
+            }
+        }
+
+        private static string GetAdaptSettingsPath()
+        {
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            if (string.IsNullOrWhiteSpace(appData))
+            {
+                return "";
+            }
+
+            return Path.Combine(appData, "MHNK", "RevitExtension", AdaptSettingsDirectoryName, AdaptSettingsFileName);
         }
 
         private static bool TryFindLatestAdaptCadExport(string projectPath, out string exportPath)
@@ -462,6 +650,11 @@ namespace CamboBIM.Revit2024.Addin
             return Regex.Replace(value.ToLowerInvariant(), @"[^a-z0-9]+", "");
         }
 
+        private static string DescribeAdaptCadImportMode(AdaptCadImportMode mode)
+        {
+            return mode == AdaptCadImportMode.ImportOnly ? "import into model" : "link preferred";
+        }
+
         private static bool IsAdaptCadDrawingPath(string path)
         {
             string ext = Path.GetExtension(path) ?? "";
@@ -479,8 +672,7 @@ namespace CamboBIM.Revit2024.Addin
             string ext = Path.GetExtension(path) ?? "";
             if (string.Equals(ext, ".adm", StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidOperationException(
-                    "ADAPT .adm project files are not imported directly. In ADAPT-Builder, export the tendon plan as DWG/DXF or export/copy a tendon profile table to CSV/XLSX, then import that file.");
+                return ReadAdaptAdmTendonGeometry(path);
             }
 
             if (string.Equals(ext, ".dwg", StringComparison.OrdinalIgnoreCase) ||
@@ -498,6 +690,533 @@ namespace CamboBIM.Revit2024.Addin
             }
 
             return ReadAdaptTendonProfileText(path);
+        }
+
+        private static AdaptTendonImportReadResult ReadAdaptAdmTendonGeometry(string path)
+        {
+            var result = new AdaptTendonImportReadResult
+            {
+                Mode = AdaptTendonImportMode.Model3D,
+                InferredUnit = AdaptTendonLengthUnit.Meter,
+                SheetCount = 1
+            };
+
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                return result;
+            }
+
+            byte[] bytes = File.ReadAllBytes(path);
+            Dictionary<string, string> layerNames = BuildAdaptAdmLayerNameMap(bytes);
+            List<AdaptAdmTendonRecord> records = ReadAdaptAdmTendonRecords(bytes, layerNames);
+            if (records.Count == 0)
+            {
+                return result;
+            }
+
+            double maxAbs = 0.0;
+            foreach (AdaptAdmTendonRecord record in records)
+            {
+                foreach (AdaptAdmPoint point in record.Points)
+                {
+                    maxAbs = Math.Max(maxAbs, Math.Abs(point.X));
+                    maxAbs = Math.Max(maxAbs, Math.Abs(point.Y));
+                    maxAbs = Math.Max(maxAbs, Math.Abs(point.Z));
+                }
+            }
+
+            result.InferredUnit = maxAbs > 500.0
+                ? AdaptTendonLengthUnit.Millimeter
+                : AdaptTendonLengthUnit.Meter;
+
+            foreach (AdaptAdmTendonRecord record in records)
+            {
+                for (int i = 1; i < record.Points.Count; i++)
+                {
+                    AdaptAdmPoint a = record.Points[i - 1];
+                    AdaptAdmPoint b = record.Points[i];
+                    ConvertAdaptAdmPointToRevitFeet(a, result.InferredUnit, out double ax, out double ay, out double az);
+                    ConvertAdaptAdmPointToRevitFeet(b, result.InferredUnit, out double bx, out double by, out double bz);
+
+                    if (GetAdaptDistanceFt(ax, ay, az, bx, by, bz) < 1.0e-6)
+                    {
+                        continue;
+                    }
+
+                    result.Segments.Add(new AdaptTendonProfileSegmentPayload
+                    {
+                        ProfileName = !string.IsNullOrWhiteSpace(record.LayerName) ? record.LayerName : record.LayerToken,
+                        TendonName = record.TendonName,
+                        SourceLabel = BuildAdaptGroupKey(record.LayerName, record.TendonName),
+                        X0Ft = ax,
+                        Y0Ft = ay,
+                        Z0Ft = az,
+                        X1Ft = bx,
+                        Y1Ft = by,
+                        Z1Ft = bz
+                    });
+                }
+
+                result.PointCount += record.Points.Count;
+            }
+
+            result.ProfileCount = result.Segments
+                .Select(BuildAdaptSegmentGroupKey)
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
+
+            return result;
+        }
+
+        private static List<AdaptAdmTendonRecord> ReadAdaptAdmTendonRecords(byte[] bytes, IDictionary<string, string> layerNames)
+        {
+            var records = new List<AdaptAdmTendonRecord>();
+            if (bytes == null || bytes.Length == 0)
+            {
+                return records;
+            }
+
+            byte[] recordName = Encoding.ASCII.GetBytes("ADPTTendonE");
+            List<int> offsets = FindAdaptAdmAsciiOccurrences(bytes, recordName).ToList();
+            for (int i = 0; i < offsets.Count; i++)
+            {
+                int offset = offsets[i];
+                int endOffset = i + 1 < offsets.Count
+                    ? offsets[i + 1]
+                    : Math.Min(bytes.Length, offset + 80000);
+
+                if (!TryReadAdaptAdmTendonRecords(bytes, offset, endOffset, layerNames, out List<AdaptAdmTendonRecord> tendonRecords))
+                {
+                    continue;
+                }
+
+                records.AddRange(tendonRecords);
+            }
+
+            return records;
+        }
+
+        private static bool TryReadAdaptAdmTendonRecords(
+            byte[] bytes,
+            int recordNameOffset,
+            int recordEndOffset,
+            IDictionary<string, string> layerNames,
+            out List<AdaptAdmTendonRecord> records)
+        {
+            records = null;
+            if (bytes == null || recordNameOffset < 0 || recordNameOffset >= bytes.Length)
+            {
+                return false;
+            }
+
+            byte[] continuous = Encoding.ASCII.GetBytes("CONTINUOUS");
+            if (!TryFindAdaptAdmAscii(bytes, continuous, recordNameOffset, Math.Min(bytes.Length, recordNameOffset + 220), out int continuousOffset))
+            {
+                return false;
+            }
+
+            int position = continuousOffset + continuous.Length;
+            if (!TryReadAdaptAdmString(bytes, position, out string layerToken, out position) ||
+                !TryReadAdaptAdmString(bytes, position, out string tendonName, out position))
+            {
+                return false;
+            }
+
+            string layerName = "";
+            if (layerNames != null && !string.IsNullOrWhiteSpace(layerToken))
+            {
+                layerNames.TryGetValue(layerToken, out layerName);
+            }
+
+            if (!IsAdaptAdmTendonLayer(layerToken, layerName))
+            {
+                return false;
+            }
+
+            AdaptAdmPointBlock planBlock = null;
+            if (!TryReadAdaptAdmPointBlock(bytes, position + 48, recordEndOffset, out planBlock))
+            {
+                for (int countOffset = position + 32; countOffset <= position + 90; countOffset++)
+                {
+                    if (TryReadAdaptAdmPointBlock(bytes, countOffset, recordEndOffset, out planBlock))
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (planBlock == null || planBlock.Points.Count < 2)
+            {
+                return false;
+            }
+
+            List<AdaptAdmPointBlock> profileBlocks = ReadAdaptAdmProfilePointBlocks(
+                bytes,
+                position + 90,
+                recordEndOffset,
+                planBlock);
+
+            if (profileBlocks.Count == 0)
+            {
+                return false;
+            }
+
+            records = new List<AdaptAdmTendonRecord>();
+            int profileIndex = 1;
+            foreach (AdaptAdmPointBlock profileBlock in profileBlocks)
+            {
+                var record = new AdaptAdmTendonRecord
+                {
+                    LayerToken = layerToken ?? "",
+                    LayerName = layerName ?? "",
+                    TendonName = BuildAdaptAdmProfileName(tendonName, recordNameOffset, profileIndex)
+                };
+                record.Points.AddRange(profileBlock.Points);
+                records.Add(record);
+                profileIndex++;
+            }
+
+            return true;
+        }
+
+        private static Dictionary<string, string> BuildAdaptAdmLayerNameMap(byte[] bytes)
+        {
+            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (bytes == null || bytes.Length == 0)
+            {
+                return map;
+            }
+
+            byte[] layerPrefix = Encoding.ASCII.GetBytes("ADPTLayer");
+            foreach (int offset in FindAdaptAdmAsciiOccurrences(bytes, layerPrefix))
+            {
+                if (!TryReadAdaptAdmStringAtTextOffset(bytes, offset, out string layerToken, out int nextOffset) ||
+                    !TryReadAdaptAdmString(bytes, nextOffset, out string displayName, out _))
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(layerToken) || string.IsNullOrWhiteSpace(displayName))
+                {
+                    continue;
+                }
+
+                string normalized = NormalizeAdaptFileToken(displayName);
+                if (!normalized.Contains("current") &&
+                    !normalized.Contains("tendon") &&
+                    !normalized.Contains("boundary") &&
+                    !normalized.Contains("support") &&
+                    !normalized.Contains("dimension") &&
+                    !normalized.Contains("template"))
+                {
+                    continue;
+                }
+
+                if (!map.ContainsKey(layerToken))
+                {
+                    map[layerToken] = displayName.Trim();
+                }
+            }
+
+            return map;
+        }
+
+        private static string BuildAdaptAdmProfileName(string tendonName, int recordNameOffset, int profileIndex)
+        {
+            string baseName = string.IsNullOrWhiteSpace(tendonName)
+                ? "Tendon @" + recordNameOffset.ToString(CultureInfo.InvariantCulture)
+                : tendonName.Trim();
+            return baseName + " Profile " + profileIndex.ToString(CultureInfo.InvariantCulture);
+        }
+
+        private static List<AdaptAdmPointBlock> ReadAdaptAdmProfilePointBlocks(
+            byte[] bytes,
+            int scanStartOffset,
+            int recordEndOffset,
+            AdaptAdmPointBlock planBlock)
+        {
+            var blocks = new List<AdaptAdmPointBlock>();
+            if (bytes == null || planBlock == null)
+            {
+                return blocks;
+            }
+
+            int start = Math.Max(0, scanStartOffset);
+            int end = Math.Min(bytes.Length, recordEndOffset);
+            for (int offset = start; offset < end - 40;)
+            {
+                if (TryReadAdaptAdmPointBlock(bytes, offset, end, out AdaptAdmPointBlock block) &&
+                    IsAdaptAdmProfilePointBlock(block, planBlock))
+                {
+                    blocks.Add(block);
+                    offset = Math.Max(offset + 1, block.EndOffset);
+                    continue;
+                }
+
+                offset++;
+            }
+
+            return blocks;
+        }
+
+        private static bool IsAdaptAdmProfilePointBlock(AdaptAdmPointBlock block, AdaptAdmPointBlock planBlock)
+        {
+            if (block == null || planBlock == null || block.Points.Count < 3)
+            {
+                return false;
+            }
+
+            double xRange = block.MaxX - block.MinX;
+            double yRange = block.MaxY - block.MinY;
+            double zRange = block.MaxZ - block.MinZ;
+            double horizontalRange = Math.Max(xRange, zRange);
+            double crossRange = Math.Min(xRange, zRange);
+
+            if (yRange < 0.02 ||
+                horizontalRange < 1.0 ||
+                block.PathLength < 1.0 ||
+                crossRange > Math.Max(2.0, horizontalRange * 0.35))
+            {
+                return false;
+            }
+
+            const double planTolerance = 2.0;
+            if (!AdaptAdmRangesOverlap(block.MinX, block.MaxX, planBlock.MinX, planBlock.MaxX, planTolerance) ||
+                !AdaptAdmRangesOverlap(block.MinZ, block.MaxZ, planBlock.MinZ, planBlock.MaxZ, planTolerance))
+            {
+                return false;
+            }
+
+            double planElevation = (planBlock.MinY + planBlock.MaxY) * 0.5;
+            double profileElevation = (block.MinY + block.MaxY) * 0.5;
+            return Math.Abs(profileElevation - planElevation) <= 2.5;
+        }
+
+        private static bool AdaptAdmRangesOverlap(double minA, double maxA, double minB, double maxB, double tolerance)
+        {
+            return minA <= maxB + tolerance && maxA >= minB - tolerance;
+        }
+
+        private static bool TryReadAdaptAdmPointBlock(byte[] bytes, int countOffset, int endOffset, out AdaptAdmPointBlock block)
+        {
+            block = null;
+            if (bytes == null || countOffset < 0 || countOffset + 16 > endOffset)
+            {
+                return false;
+            }
+
+            int pointCount = BitConverter.ToInt32(bytes, countOffset);
+            if (pointCount < 2 || pointCount > 100)
+            {
+                return false;
+            }
+
+            int dataOffset = countOffset + 12;
+            if (dataOffset < 0 || dataOffset + (pointCount * 24) > endOffset)
+            {
+                return false;
+            }
+
+            double polylineLength = 0.0;
+            double minX = double.MaxValue;
+            double minY = double.MaxValue;
+            double minZ = double.MaxValue;
+            double maxX = double.MinValue;
+            double maxY = double.MinValue;
+            double maxZ = double.MinValue;
+            var parsed = new List<AdaptAdmPoint>();
+            AdaptAdmPoint previous = null;
+            for (int i = 0; i < pointCount; i++)
+            {
+                int pointOffset = dataOffset + (i * 24);
+                double x = BitConverter.ToDouble(bytes, pointOffset);
+                double y = BitConverter.ToDouble(bytes, pointOffset + 8);
+                double z = BitConverter.ToDouble(bytes, pointOffset + 16);
+                if (!IsReasonableAdaptAdmCoordinate(x) ||
+                    !IsReasonableAdaptAdmCoordinate(y) ||
+                    !IsReasonableAdaptAdmCoordinate(z))
+                {
+                    return false;
+                }
+
+                var point = new AdaptAdmPoint
+                {
+                    X = x,
+                    Y = y,
+                    Z = z
+                };
+
+                if (previous != null)
+                {
+                    double dx = point.X - previous.X;
+                    double dy = point.Y - previous.Y;
+                    double dz = point.Z - previous.Z;
+                    polylineLength += Math.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+                }
+
+                parsed.Add(point);
+                previous = point;
+                minX = Math.Min(minX, point.X);
+                maxX = Math.Max(maxX, point.X);
+                minY = Math.Min(minY, point.Y);
+                maxY = Math.Max(maxY, point.Y);
+                minZ = Math.Min(minZ, point.Z);
+                maxZ = Math.Max(maxZ, point.Z);
+            }
+
+            if (polylineLength < 0.01)
+            {
+                return false;
+            }
+
+            block = new AdaptAdmPointBlock
+            {
+                CountOffset = countOffset,
+                EndOffset = dataOffset + (pointCount * 24),
+                PathLength = polylineLength,
+                MinX = minX,
+                MaxX = maxX,
+                MinY = minY,
+                MaxY = maxY,
+                MinZ = minZ,
+                MaxZ = maxZ
+            };
+            block.Points.AddRange(parsed);
+            return true;
+        }
+
+        private static bool IsReasonableAdaptAdmCoordinate(double value)
+        {
+            return !double.IsNaN(value) &&
+                   !double.IsInfinity(value) &&
+                   Math.Abs(value) <= 100000.0;
+        }
+
+        private static bool IsAdaptAdmTendonLayer(string layerToken, string layerName)
+        {
+            string token = NormalizeAdaptFileToken(layerToken);
+            string name = NormalizeAdaptFileToken(layerName);
+            if (name.Contains("ctrl") || name.Contains("supportbar") || name.Contains("txt") || name.Contains("template"))
+            {
+                return false;
+            }
+
+            if (name.Contains("tendon"))
+            {
+                return true;
+            }
+
+            return token.StartsWith("adaptlayer", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void ConvertAdaptAdmPointToRevitFeet(
+            AdaptAdmPoint point,
+            AdaptTendonLengthUnit unit,
+            out double xFt,
+            out double yFt,
+            out double zFt)
+        {
+            // ADAPT-Builder tendon records store plan coordinates on X/Z and the up/elevation axis on Y.
+            xFt = ConvertAdaptLengthToFeet(point.X, unit);
+            yFt = ConvertAdaptLengthToFeet(point.Z, unit);
+            zFt = ConvertAdaptLengthToFeet(point.Y, unit);
+        }
+
+        private static IEnumerable<int> FindAdaptAdmAsciiOccurrences(byte[] bytes, byte[] needle)
+        {
+            if (bytes == null || needle == null || bytes.Length == 0 || needle.Length == 0 || needle.Length > bytes.Length)
+            {
+                yield break;
+            }
+
+            for (int i = 0; i <= bytes.Length - needle.Length; i++)
+            {
+                bool match = true;
+                for (int j = 0; j < needle.Length; j++)
+                {
+                    if (bytes[i + j] != needle[j])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+
+                if (match)
+                {
+                    yield return i;
+                }
+            }
+        }
+
+        private static bool TryFindAdaptAdmAscii(byte[] bytes, byte[] needle, int startOffset, int endOffset, out int offset)
+        {
+            offset = -1;
+            if (bytes == null || needle == null || needle.Length == 0)
+            {
+                return false;
+            }
+
+            int start = Math.Max(0, startOffset);
+            int end = Math.Min(bytes.Length - needle.Length, Math.Max(start, endOffset - needle.Length));
+            for (int i = start; i <= end; i++)
+            {
+                bool match = true;
+                for (int j = 0; j < needle.Length; j++)
+                {
+                    if (bytes[i + j] != needle[j])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+
+                if (match)
+                {
+                    offset = i;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryReadAdaptAdmStringAtTextOffset(byte[] bytes, int textOffset, out string text, out int nextOffset)
+        {
+            text = "";
+            nextOffset = textOffset;
+            if (bytes == null || textOffset < 4)
+            {
+                return false;
+            }
+
+            return TryReadAdaptAdmString(bytes, textOffset - 4, out text, out nextOffset);
+        }
+
+        private static bool TryReadAdaptAdmString(byte[] bytes, int lengthOffset, out string text, out int nextOffset)
+        {
+            text = "";
+            nextOffset = lengthOffset;
+            if (bytes == null || lengthOffset < 0 || lengthOffset + 4 > bytes.Length)
+            {
+                return false;
+            }
+
+            int length = BitConverter.ToInt32(bytes, lengthOffset);
+            if (length < 0 || length > 512 || lengthOffset + 4 + length > bytes.Length)
+            {
+                return false;
+            }
+
+            string value = Encoding.ASCII.GetString(bytes, lengthOffset + 4, length);
+            if (value.Any(ch => ch < 32 || ch > 126))
+            {
+                return false;
+            }
+
+            text = value;
+            nextOffset = lengthOffset + 4 + length;
+            return true;
         }
 
         private static AdaptTendonImportReadResult ReadAdaptTendonProfileText(string path)

@@ -101,6 +101,12 @@ namespace CamboBIM.Revit2024.Addin
         ProfileDetail
     }
 
+    internal enum AdaptCadImportMode
+    {
+        LinkPreferred,
+        ImportOnly
+    }
+
     internal class ColumnRebarCustomLineTieSpec
     {
         public int X0GridIndex { get; set; }
@@ -666,6 +672,7 @@ namespace CamboBIM.Revit2024.Addin
         public AdaptTendonImportMode AdaptTendonImportMode { get; set; } = AdaptTendonImportMode.Model3D;
         public string AdaptTendonSourcePath { get; set; } = "";
         public string AdaptCadSourcePath { get; set; } = "";
+        public AdaptCadImportMode AdaptCadImportMode { get; set; } = AdaptCadImportMode.LinkPreferred;
         public List<AdaptTendonProfileSegmentPayload> AdaptTendonProfileSegments { get; set; } =
             new List<AdaptTendonProfileSegmentPayload>();
 

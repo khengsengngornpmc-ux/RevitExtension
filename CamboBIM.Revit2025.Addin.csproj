@@ -138,6 +138,7 @@
     <Compile Include="OpenBoreyCommand.cs" />
     <Compile Include="OpenCad2ModelCommand.cs" />
     <Compile Include="OpenDrawingCommand.cs" />
+    <Compile Include="OpenDrawingPtCommand.cs" />
     <Compile Include="OpenLinksheetCommand.cs" />
     <Compile Include="OpenLicenseLoginCommand.cs" />
     <Compile Include="OpenMhnkArchitectureToolCommand.cs" />
