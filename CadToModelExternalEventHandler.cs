@@ -20466,10 +20466,21 @@ namespace CamboBIM.Revit2024.Addin
         private void ImportAdaptCadDrawing(Document doc)
         {
             string path = Request.AdaptCadSourcePath;
+            WriteAdaptPtTraceLog(
+                doc,
+                "CadImportStart",
+                path,
+                new[]
+                {
+                    "RequestedMode=" + (Request?.AdaptCadImportMode.ToString() ?? ""),
+                    "MarkPrefix=" + (Request?.AdaptShopMarkPrefix ?? ""),
+                    "SequenceMode=" + (Request?.AdaptShopMarkSequenceMode.ToString() ?? "")
+                });
             if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path))
             {
                 _window?.ShowStatus("ADAPT CAD: source DWG/DXF was not found.");
                 WriteAdaptCadImportReport(doc, path, "Failed", "Source file was not found.", null, 0);
+                WriteAdaptPtTraceLog(doc, "CadImportFailed", path, new[] { "Reason=Source file was not found." });
                 return;
             }
 
@@ -20479,6 +20490,7 @@ namespace CamboBIM.Revit2024.Addin
             {
                 _window?.ShowStatus("ADAPT CAD: select a DWG or DXF exported from ADAPT-Builder.");
                 WriteAdaptCadImportReport(doc, path, "Failed", "Source extension is not DWG/DXF.", null, 0);
+                WriteAdaptPtTraceLog(doc, "CadImportFailed", path, new[] { "Reason=Source extension is not DWG/DXF." });
                 return;
             }
 
@@ -20487,6 +20499,7 @@ namespace CamboBIM.Revit2024.Addin
             {
                 _window?.ShowStatus("ADAPT CAD: open a plan, drafting, section, elevation, or 3D view before linking the ADAPT drawing.");
                 WriteAdaptCadImportReport(doc, path, "Failed", "Active view is not valid for DWG/DXF import.", null, 0);
+                WriteAdaptPtTraceLog(doc, "CadImportFailed", path, new[] { "Reason=Active view is not valid for DWG/DXF import." });
                 return;
             }
 
@@ -20497,6 +20510,7 @@ namespace CamboBIM.Revit2024.Addin
                 {
                     _window?.ShowStatus("ADAPT CAD: cancelled because an existing import/link was found.");
                     WriteAdaptCadImportReport(doc, path, "Cancelled", "Existing ADAPT CAD was found and user cancelled.", existingCad, 0);
+                    WriteAdaptPtTraceLog(doc, "CadImportCancelled", path, new[] { "Reason=Existing ADAPT CAD found and user cancelled." });
                     return;
                 }
 
@@ -20515,6 +20529,16 @@ namespace CamboBIM.Revit2024.Addin
                         existingCad,
                         existingLayers.Count,
                         existingAnalysis.BuildReportText());
+                    WriteAdaptPtTraceLog(
+                        doc,
+                        "CadImportReused",
+                        path,
+                        new[]
+                        {
+                            "LayerCount=" + existingLayers.Count.ToString(CultureInfo.InvariantCulture),
+                            "PackageViews=" + existingPackageViews.ToString(CultureInfo.InvariantCulture),
+                            "PackageSheets=" + existingPackageSheets.ToString(CultureInfo.InvariantCulture)
+                        });
                     _window?.ShowStatus(
                         "ADAPT CAD: reused existing CAD source " +
                         existingCad.Name +
@@ -20569,6 +20593,7 @@ namespace CamboBIM.Revit2024.Addin
                             : "link failed: " + linkError + "; import failed: " + ex.Message;
                         _window?.ShowStatus("ADAPT CAD import failed: " + detail);
                         WriteAdaptCadImportReport(doc, path, "Failed", detail, null, 0);
+                        WriteAdaptPtTraceLog(doc, "CadImportFailed", path, new[] { "Reason=" + detail });
                         return;
                     }
                 }
@@ -20578,6 +20603,7 @@ namespace CamboBIM.Revit2024.Addin
                     t.RollBack();
                     _window?.ShowStatus("ADAPT CAD import failed: Revit did not return a CAD instance.");
                     WriteAdaptCadImportReport(doc, path, "Failed", "Revit did not return a CAD instance.", null, 0);
+                    WriteAdaptPtTraceLog(doc, "CadImportFailed", path, new[] { "Reason=Revit did not return a CAD instance." });
                     return;
                 }
 
@@ -20592,6 +20618,7 @@ namespace CamboBIM.Revit2024.Addin
             {
                 _window?.ShowStatus("ADAPT CAD: drawing was added, but the CAD instance could not be selected for CAD2MODEL.");
                 WriteAdaptCadImportReport(doc, path, "Failed", "CAD instance was added but could not be resolved after commit.", null, 0);
+                WriteAdaptPtTraceLog(doc, "CadImportFailed", path, new[] { "Reason=CAD instance could not be resolved after commit." });
                 return;
             }
 
@@ -20606,6 +20633,18 @@ namespace CamboBIM.Revit2024.Addin
                 ? " Layers: " + layers.Count.ToString(CultureInfo.InvariantCulture) + "."
                 : " No readable CAD layers found; check the ADAPT export visibility/content.";
             WriteAdaptCadImportReport(doc, path, action, "CAD source selected for CAD2MODEL.", cad, layers.Count, analysis.BuildReportText());
+            WriteAdaptPtTraceLog(
+                doc,
+                "CadImportCompleted",
+                path,
+                new[]
+                {
+                    "Action=" + action,
+                    "LayerCount=" + layers.Count.ToString(CultureInfo.InvariantCulture),
+                    "PackageViews=" + packageViews.ToString(CultureInfo.InvariantCulture),
+                    "PackageSheets=" + packageSheets.ToString(CultureInfo.InvariantCulture),
+                    "SheetsSkipped=" + packageSheetsSkipped.ToString()
+                });
             _window?.ShowStatus(
                 "ADAPT CAD: " + action + " " + System.IO.Path.GetFileName(path) +
                 " at project origin and selected it as the CAD2MODEL source." +
@@ -20995,6 +21034,50 @@ namespace CamboBIM.Revit2024.Addin
                 };
 
                 System.IO.File.AppendAllLines(reportPath, lines, System.Text.Encoding.UTF8);
+            }
+            catch
+            {
+            }
+        }
+
+        private static void WriteAdaptPtTraceLog(
+            Document doc,
+            string stage,
+            string sourcePath,
+            IEnumerable<string> extraLines = null)
+        {
+            try
+            {
+                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                if (string.IsNullOrWhiteSpace(appData))
+                {
+                    return;
+                }
+
+                string directory = System.IO.Path.Combine(appData, "MHNK", "RevitExtension", "DRAWING_PT", "Logs");
+                System.IO.Directory.CreateDirectory(directory);
+                string logPath = System.IO.Path.Combine(
+                    directory,
+                    "pt-trace-" + DateTime.Now.ToString("yyyyMMdd", CultureInfo.InvariantCulture) + ".log");
+
+                var lines = new List<string>
+                {
+                    "Time=" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                    "Document=" + (doc?.Title ?? ""),
+                    "Stage=" + (stage ?? ""),
+                    "Source=" + (sourcePath ?? "")
+                };
+
+                foreach (string line in extraLines ?? Enumerable.Empty<string>())
+                {
+                    if (!string.IsNullOrWhiteSpace(line))
+                    {
+                        lines.Add(line.Trim());
+                    }
+                }
+
+                lines.Add("");
+                System.IO.File.AppendAllLines(logPath, lines, System.Text.Encoding.UTF8);
             }
             catch
             {
@@ -23125,6 +23208,18 @@ namespace CamboBIM.Revit2024.Addin
                 }
 
                 System.IO.File.WriteAllText(csvPath, csv.ToString(), System.Text.Encoding.UTF8);
+                WriteAdaptPtTraceLog(
+                    null,
+                    "SnapshotWritten",
+                    sourcePath,
+                    new[]
+                    {
+                        "JsonPath=" + jsonPath,
+                        "CsvPath=" + csvPath,
+                        "ImportMethod=" + (document.ImportMethod ?? ""),
+                        "TendonCount=" + (document.Tendons?.Count ?? 0).ToString(CultureInfo.InvariantCulture),
+                        "TakeoffRows=" + (takeoffRows?.Count ?? 0).ToString(CultureInfo.InvariantCulture)
+                    });
             }
             catch
             {
@@ -23382,9 +23477,21 @@ namespace CamboBIM.Revit2024.Addin
         private void ImportAdaptTendonProfiles(Document doc)
         {
             List<AdaptTendonProfileSegmentPayload> segments = Request.AdaptTendonProfileSegments ?? new List<AdaptTendonProfileSegmentPayload>();
+            WriteAdaptPtTraceLog(
+                doc,
+                "DirectImportStart",
+                Request?.AdaptTendonSourcePath,
+                new[]
+                {
+                    "ImportMode=" + (Request?.AdaptTendonImportMode.ToString() ?? ""),
+                    "SegmentCount=" + segments.Count.ToString(CultureInfo.InvariantCulture),
+                    "MarkPrefix=" + (Request?.AdaptShopMarkPrefix ?? ""),
+                    "SequenceMode=" + (Request?.AdaptShopMarkSequenceMode.ToString() ?? "")
+                });
             if (segments.Count == 0)
             {
                 _window?.ShowStatus("ADAPT import: no tendon/profile segments to import.");
+                WriteAdaptPtTraceLog(doc, "DirectImportFailed", Request?.AdaptTendonSourcePath, new[] { "Reason=No tendon/profile segments to import." });
                 return;
             }
 
@@ -23544,6 +23651,21 @@ namespace CamboBIM.Revit2024.Addin
             }
 
             WriteAdaptPtImportSnapshot(Request.AdaptTendonSourcePath, snapshotDocument, snapshotRows);
+            WriteAdaptPtTraceLog(
+                doc,
+                "DirectImportCompleted",
+                Request?.AdaptTendonSourcePath,
+                new[]
+                {
+                    "CreatedSolids=" + createdSolids.ToString(CultureInfo.InvariantCulture),
+                    "CreatedElements=" + created.ToString(CultureInfo.InvariantCulture),
+                    "ProfileViews=" + profileViews.ToString(CultureInfo.InvariantCulture),
+                    "ProfileSheets=" + profileSheets.ToString(CultureInfo.InvariantCulture),
+                    "Replaced=" + replaced.ToString(CultureInfo.InvariantCulture),
+                    "Skipped=" + skipped.ToString(CultureInfo.InvariantCulture),
+                    "ActiveProfileSkipped=" + activeProfileViewSkipped.ToString(),
+                    "ProfileSheetCreationSkipped=" + profileSheetCreationSkipped.ToString()
+                });
 
             string source = string.IsNullOrWhiteSpace(Request.AdaptTendonSourcePath)
                 ? ""

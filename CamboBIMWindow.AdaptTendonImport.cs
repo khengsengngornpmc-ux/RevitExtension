@@ -13,8 +13,6 @@ namespace CamboBIM.Revit2024.Addin
 {
     public partial class CamboBIMWindow
     {
-        private const string AdaptSettingsDirectoryName = "DRAWING_PT";
-        private const string AdaptSettingsFileName = "adapt-import.settings";
         private static string _adaptLastFolder = LoadAdaptSettingValue("LastFolder");
         private static string _adaptLastProjectPath = LoadAdaptSettingValue("LastProject");
         private static AdaptCadImportMode _adaptCadImportMode = LoadAdaptCadImportMode();
@@ -23,15 +21,6 @@ namespace CamboBIM.Revit2024.Addin
         private static int _adaptShopMarkDigits = LoadAdaptShopMarkDigits();
         private static AdaptPtShopMarkSequenceMode _adaptShopMarkSequenceMode = LoadAdaptShopMarkSequenceMode();
         private static bool _adaptPreserveCadShopMarks = LoadAdaptPreserveCadShopMarks();
-
-        private enum AdaptTendonLengthUnit
-        {
-            Millimeter,
-            Meter,
-            Foot,
-            Inch,
-            Centimeter
-        }
 
         private enum AdaptImportWorkflowOption
         {
@@ -43,18 +32,6 @@ namespace CamboBIM.Revit2024.Addin
         {
             ImportNewPt,
             RenumberAuditExistingPt
-        }
-
-        private sealed class AdaptTendonImportReadResult
-        {
-            public AdaptTendonImportMode Mode { get; set; } = AdaptTendonImportMode.Model3D;
-            public AdaptTendonLengthUnit InferredUnit { get; set; } = AdaptTendonLengthUnit.Millimeter;
-            public List<AdaptTendonProfileSegmentPayload> Segments { get; } =
-                new List<AdaptTendonProfileSegmentPayload>();
-            public int SheetCount { get; set; }
-            public int PointCount { get; set; }
-            public int SkippedRows { get; set; }
-            public int ProfileCount { get; set; }
         }
 
         private sealed class AdaptTendonPointRow
@@ -76,59 +53,6 @@ namespace CamboBIM.Revit2024.Addin
             public int Digits { get; set; } = 3;
             public AdaptPtShopMarkSequenceMode SequenceMode { get; set; } = AdaptPtShopMarkSequenceMode.SourceAndName;
             public bool PreserveCadShopMarks { get; set; } = true;
-        }
-
-        private sealed class AdaptPtSnapshotInfo
-        {
-            public string JsonPath { get; set; } = "";
-            public DateTime SnapshotTimeLocal { get; set; }
-            public PtImportJsonDocument Document { get; set; } = new PtImportJsonDocument();
-
-            public string SourcePath => (Document?.Source?.SourcePath ?? "").Trim();
-
-            public string DisplayName
-            {
-                get
-                {
-                    string displayName = (Document?.Source?.DisplayName ?? "").Trim();
-                    if (!string.IsNullOrWhiteSpace(displayName))
-                    {
-                        return displayName;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(SourcePath))
-                    {
-                        return Path.GetFileName(SourcePath);
-                    }
-
-                    return Path.GetFileName(JsonPath ?? "");
-                }
-            }
-
-            public bool IsCadWorkflow =>
-                string.Equals(Document?.ImportMethod, "cad-dwg-dxf", StringComparison.OrdinalIgnoreCase) ||
-                IsAdaptCadDrawingPath(SourcePath);
-        }
-
-        private sealed class AdaptPtAuditCandidate
-        {
-            public PtImportJsonTendon Tendon { get; set; }
-            public double AnchorXFt { get; set; }
-            public double AnchorYFt { get; set; }
-            public double LengthFt { get; set; }
-            public string Signature { get; set; } = "";
-            public string DefaultLabel { get; set; } = "";
-            public bool IsCadLabel { get; set; }
-        }
-
-        private sealed class AdaptPtAuditAssignment
-        {
-            public int RowNumber { get; set; }
-            public PtImportJsonTendon Tendon { get; set; }
-            public string CurrentMark { get; set; } = "";
-            public string ProposedMark { get; set; } = "";
-            public double LengthFt { get; set; }
-            public bool IsCadLabel { get; set; }
         }
 
         private sealed class AdaptShopMarkSettingsDialog : Window
@@ -505,10 +429,19 @@ namespace CamboBIM.Revit2024.Addin
             {
                 string selectedPath = dialog.FileName;
                 RememberAdaptPath(selectedPath);
+                PtDrawingTraceService.WriteTrace(
+                    "ImportWorkflowSelection",
+                    "DRAWING PT source selected.",
+                    selectedPath,
+                    new[]
+                    {
+                        "Workflow=" + workflow.ToString(),
+                        "FileName=" + Path.GetFileName(selectedPath)
+                    });
 
                 if (workflow == AdaptImportWorkflowOption.CadDrawingImport)
                 {
-                    if (!IsAdaptCadDrawingPath(selectedPath))
+                    if (!PtDrawingSourceService.IsCadDrawingPath(selectedPath))
                     {
                         MessageBox.Show(
                             this,
@@ -525,13 +458,13 @@ namespace CamboBIM.Revit2024.Addin
                     return;
                 }
 
-                if (IsAdaptProjectPath(selectedPath))
+                if (PtDrawingSourceService.IsProjectPath(selectedPath))
                 {
                     HandleAdaptProjectWithoutLaunchingBuilder(selectedPath);
                     return;
                 }
 
-                if (IsAdaptCadDrawingPath(selectedPath))
+                if (PtDrawingSourceService.IsCadDrawingPath(selectedPath))
                 {
                     MessageBox.Show(
                         this,
@@ -631,11 +564,21 @@ namespace CamboBIM.Revit2024.Addin
                 return;
             }
 
-            if (!TryChooseAdaptAuditSource(out string sourcePath, out AdaptImportWorkflowOption workflow, out AdaptPtSnapshotInfo snapshot))
+            if (!TryChooseAdaptAuditSource(out string sourcePath, out AdaptImportWorkflowOption workflow, out PtDrawingSnapshotRecord snapshot))
             {
                 ShowStatus("DRAWING PT renumber/audit: cancelled.");
                 return;
             }
+
+            PtDrawingTraceService.WriteTrace(
+                "RenumberAuditSource",
+                "Renumber / audit source selected.",
+                sourcePath,
+                new[]
+                {
+                    "Workflow=" + workflow.ToString(),
+                    "SnapshotFound=" + ((snapshot != null).ToString())
+                });
 
             if (!TryChooseAdaptShopMarkSettings(
                 sourcePath,
@@ -657,12 +600,20 @@ namespace CamboBIM.Revit2024.Addin
 
             if ((auditDocument?.Tendons?.Count ?? 0) > 0)
             {
-                IList<MhnkCadPreviewItem> previewItems = BuildAdaptAuditPreviewItems(auditDocument, workflow, markSettings);
-                string summary = BuildAdaptAuditPreviewSummary(sourcePath, workflow, snapshot, auditDocument, markSettings, previewItems);
+                PtDrawingAuditPreviewPackage preview = PtDrawingAuditService.BuildPreview(
+                    sourcePath,
+                    workflow == AdaptImportWorkflowOption.CadDrawingImport,
+                    snapshot,
+                    auditDocument,
+                    markSettings.Prefix,
+                    markSettings.StartNumber,
+                    markSettings.Digits,
+                    markSettings.SequenceMode,
+                    markSettings.PreserveCadShopMarks);
                 var previewWindow = new MhnkCadToModelPreviewWindow(
                     "DRAWING PT Renumber / Audit",
-                    summary,
-                    previewItems,
+                    preview.Summary,
+                    preview.Items,
                     _revitMainWindowHandle);
 
                 if (previewWindow.ShowDialog() != true)
@@ -731,6 +682,19 @@ namespace CamboBIM.Revit2024.Addin
             _handler.Request.AdaptTendonProfileSegments = new List<AdaptTendonProfileSegmentPayload>();
             _handler.Request.RequestType = CadToModelRequestType.ImportAdaptCadDrawing;
             _externalEvent.Raise();
+            PtDrawingTraceService.WriteTrace(
+                "QueueCadImport",
+                "Queued DRAWING PT CAD import.",
+                path,
+                new[]
+                {
+                    "CadImportMode=" + importMode.ToString(),
+                    "Prefix=" + markSettings.Prefix,
+                    "StartNumber=" + markSettings.StartNumber.ToString(CultureInfo.InvariantCulture),
+                    "Digits=" + markSettings.Digits.ToString(CultureInfo.InvariantCulture),
+                    "SequenceMode=" + markSettings.SequenceMode.ToString(),
+                    "PreserveCadMarks=" + markSettings.PreserveCadShopMarks.ToString()
+                });
 
             string statusLead = string.IsNullOrWhiteSpace(statusPrefix) ? "ADAPT CAD" : statusPrefix.Trim();
             ShowStatus(
@@ -785,6 +749,21 @@ namespace CamboBIM.Revit2024.Addin
             _handler.Request.AdaptPreserveCadShopMarks = markSettings.PreserveCadShopMarks;
             _handler.Request.RequestType = CadToModelRequestType.ImportAdaptTendonProfiles;
             _externalEvent.Raise();
+            PtDrawingTraceService.WriteTrace(
+                "QueueDirectImport",
+                "Queued DRAWING PT direct tendon import.",
+                path,
+                new[]
+                {
+                    "ImportMode=" + result.Mode.ToString(),
+                    "SegmentCount=" + result.Segments.Count.ToString(CultureInfo.InvariantCulture),
+                    "ProfileCount=" + result.ProfileCount.ToString(CultureInfo.InvariantCulture),
+                    "PointCount=" + result.PointCount.ToString(CultureInfo.InvariantCulture),
+                    "Prefix=" + markSettings.Prefix,
+                    "StartNumber=" + markSettings.StartNumber.ToString(CultureInfo.InvariantCulture),
+                    "Digits=" + markSettings.Digits.ToString(CultureInfo.InvariantCulture),
+                    "SequenceMode=" + markSettings.SequenceMode.ToString()
+                });
 
             string modeText = IsAdaptProjectPath(path)
                 ? "3D tendon profile segments"
@@ -835,14 +814,14 @@ namespace CamboBIM.Revit2024.Addin
             EnsureAdaptSettingsLoaded();
             if (string.IsNullOrWhiteSpace(_adaptLastProjectPath) ||
                 !File.Exists(_adaptLastProjectPath) ||
-                !TryFindLatestAdaptCadExport(_adaptLastProjectPath, out string exportPath))
+                !PtDrawingSourceService.TryFindLatestCadExport(_adaptLastProjectPath, out string exportPath))
             {
                 return false;
             }
 
             FileInfo exportInfo = new FileInfo(exportPath);
             string projectName = Path.GetFileName(_adaptLastProjectPath);
-            string exportFreshness = BuildAdaptExportFreshnessNote(_adaptLastProjectPath, exportInfo);
+            string exportFreshness = PtDrawingSourceService.BuildExportFreshnessNote(_adaptLastProjectPath, exportInfo);
             MessageBoxResult result = MessageBox.Show(
                 this,
                 "Use the latest CAD export from the previous ADAPT project?\n\n" +
@@ -887,10 +866,10 @@ namespace CamboBIM.Revit2024.Addin
                 ShowStatus("ADAPT ADM direct import did not find usable tendon geometry: " + ex.Message);
             }
 
-            if (TryFindLatestAdaptCadExport(path, out string exportPath))
+            if (PtDrawingSourceService.TryFindLatestCadExport(path, out string exportPath))
             {
                 FileInfo exportInfo = new FileInfo(exportPath);
-                string exportFreshness = BuildAdaptExportFreshnessNote(path, exportInfo);
+                string exportFreshness = PtDrawingSourceService.BuildExportFreshnessNote(path, exportInfo);
                 MessageBoxResult importExisting = MessageBox.Show(
                     this,
                     "Direct .adm import did not find usable tendon geometry, but a CAD export was found near this ADAPT project:\n\n" +
@@ -920,32 +899,6 @@ namespace CamboBIM.Revit2024.Addin
                 MessageBoxImage.Information);
 
             ShowStatus("DRAWING PT: no direct .adm tendon geometry or nearby DWG/DXF export found for " + fileName + ".");
-        }
-
-        private static bool IsAdaptProjectPath(string path)
-        {
-            string ext = Path.GetExtension(path) ?? "";
-            return string.Equals(ext, ".adm", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static string BuildAdaptExportFreshnessNote(string projectPath, FileInfo exportInfo)
-        {
-            try
-            {
-                FileInfo projectInfo = new FileInfo(projectPath);
-                if (projectInfo.Exists &&
-                    exportInfo != null &&
-                    exportInfo.Exists &&
-                    exportInfo.LastWriteTimeUtc < projectInfo.LastWriteTimeUtc)
-                {
-                    return "\nNote: this export is older than the .adm model. Re-export from ADAPT if the model changed.";
-                }
-            }
-            catch
-            {
-            }
-
-            return "";
         }
 
         private bool TryChooseAdaptShopMarkSettings(string path, out AdaptShopMarkSettings settings)
@@ -1001,14 +954,14 @@ namespace CamboBIM.Revit2024.Addin
         private bool TryChooseAdaptAuditSource(
             out string sourcePath,
             out AdaptImportWorkflowOption workflow,
-            out AdaptPtSnapshotInfo snapshot)
+            out PtDrawingSnapshotRecord snapshot)
         {
             sourcePath = "";
             workflow = AdaptImportWorkflowOption.DirectAdaptImport;
             snapshot = null;
 
-            List<AdaptPtSnapshotInfo> snapshots = LoadAdaptPtSnapshots();
-            AdaptPtSnapshotInfo latestSnapshot = snapshots
+            List<PtDrawingSnapshotRecord> snapshots = PtDrawingSnapshotStore.LoadSnapshots();
+            PtDrawingSnapshotRecord latestSnapshot = snapshots
                 .Where(item => item != null)
                 .OrderByDescending(item => item.SnapshotTimeLocal)
                 .FirstOrDefault();
@@ -1063,7 +1016,7 @@ namespace CamboBIM.Revit2024.Addin
                 return false;
             }
 
-            snapshot = FindLatestAdaptPtSnapshotForSourcePath(sourcePath, snapshots);
+            snapshot = PtDrawingSnapshotStore.FindLatestSnapshotForSourcePath(sourcePath, snapshots);
             RememberAdaptPath(sourcePath);
             return true;
         }
@@ -1098,7 +1051,7 @@ namespace CamboBIM.Revit2024.Addin
             }
 
             sourcePath = dialog.FileName;
-            workflow = IsAdaptCadDrawingPath(sourcePath)
+            workflow = PtDrawingSourceService.IsCadDrawingPath(sourcePath)
                 ? AdaptImportWorkflowOption.CadDrawingImport
                 : AdaptImportWorkflowOption.DirectAdaptImport;
             return true;
@@ -1125,7 +1078,7 @@ namespace CamboBIM.Revit2024.Addin
                     return true;
                 }
 
-                if (IsAdaptProjectPath(sourcePath))
+                if (PtDrawingSourceService.IsProjectPath(sourcePath))
                 {
                     try
                     {
@@ -1141,10 +1094,10 @@ namespace CamboBIM.Revit2024.Addin
                         ShowStatus("DRAWING PT renumber/audit: direct ADM read did not find usable tendon geometry: " + ex.Message);
                     }
 
-                    if (TryFindLatestAdaptCadExport(sourcePath, out string exportPath))
+                    if (PtDrawingSourceService.TryFindLatestCadExport(sourcePath, out string exportPath))
                     {
                         FileInfo exportInfo = new FileInfo(exportPath);
-                        string exportFreshness = BuildAdaptExportFreshnessNote(sourcePath, exportInfo);
+                        string exportFreshness = PtDrawingSourceService.BuildExportFreshnessNote(sourcePath, exportInfo);
                         MessageBoxResult useCadFallback = MessageBox.Show(
                             this,
                             "Direct .adm tendon geometry was not available for this renumber / audit run, but a nearby ADAPT CAD export was found:\n\n" +
@@ -1195,7 +1148,7 @@ namespace CamboBIM.Revit2024.Addin
                     _adaptLastFolder = directory;
                 }
 
-                if (IsAdaptProjectPath(path))
+                if (PtDrawingSourceService.IsProjectPath(path))
                 {
                     _adaptLastProjectPath = path;
                 }
@@ -1288,759 +1241,30 @@ namespace CamboBIM.Revit2024.Addin
 
         private static string LoadAdaptSettingValue(string key)
         {
-            try
-            {
-                string settingsPath = GetAdaptSettingsPath();
-                if (string.IsNullOrWhiteSpace(settingsPath) || !File.Exists(settingsPath))
-                {
-                    return "";
-                }
-
-                string prefix = key + "=";
-                foreach (string line in File.ReadAllLines(settingsPath, Encoding.UTF8))
-                {
-                    if (line != null && line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    {
-                        string value = line.Substring(prefix.Length).Trim();
-                        if (string.Equals(key, "LastFolder", StringComparison.OrdinalIgnoreCase))
-                        {
-                            return Directory.Exists(value) ? value : "";
-                        }
-
-                        if (string.Equals(key, "LastProject", StringComparison.OrdinalIgnoreCase))
-                        {
-                            return File.Exists(value) ? value : "";
-                        }
-
-                        return value;
-                    }
-                }
-            }
-            catch
-            {
-            }
-
-            return "";
+            return PtDrawingSettingsStore.LoadValue(key);
         }
 
         private static void SaveAdaptSettings()
         {
-            try
-            {
-                string settingsPath = GetAdaptSettingsPath();
-                if (string.IsNullOrWhiteSpace(settingsPath))
-                {
-                    return;
-                }
-
-                string directory = Path.GetDirectoryName(settingsPath);
-                if (!string.IsNullOrWhiteSpace(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
-
-                var lines = new List<string>();
-                if (!string.IsNullOrWhiteSpace(_adaptLastFolder) && Directory.Exists(_adaptLastFolder))
-                {
-                    lines.Add("LastFolder=" + _adaptLastFolder);
-                }
-
-                if (!string.IsNullOrWhiteSpace(_adaptLastProjectPath) && File.Exists(_adaptLastProjectPath))
-                {
-                    lines.Add("LastProject=" + _adaptLastProjectPath);
-                }
-
-                lines.Add("CadImportMode=" + _adaptCadImportMode);
-                lines.Add("ShopMarkPrefix=" + (string.IsNullOrWhiteSpace(_adaptShopMarkPrefix) ? "PT" : _adaptShopMarkPrefix));
-                lines.Add("ShopMarkStartNumber=" + Math.Max(1, _adaptShopMarkStartNumber).ToString(CultureInfo.InvariantCulture));
-                lines.Add("ShopMarkDigits=" + Math.Max(1, Math.Min(6, _adaptShopMarkDigits)).ToString(CultureInfo.InvariantCulture));
-                lines.Add("ShopMarkSequenceMode=" + _adaptShopMarkSequenceMode.ToString());
-                lines.Add("PreserveCadShopMarks=" + (_adaptPreserveCadShopMarks ? "true" : "false"));
-
-                File.WriteAllLines(settingsPath, lines, Encoding.UTF8);
-            }
-            catch
-            {
-            }
-        }
-
-        private static string GetAdaptSettingsPath()
-        {
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            if (string.IsNullOrWhiteSpace(appData))
-            {
-                return "";
-            }
-
-            return Path.Combine(appData, "MHNK", "RevitExtension", AdaptSettingsDirectoryName, AdaptSettingsFileName);
-        }
-
-        private static string GetAdaptSnapshotsRootDirectory()
-        {
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            if (string.IsNullOrWhiteSpace(appData))
-            {
-                return "";
-            }
-
-            return Path.Combine(appData, "MHNK", "RevitExtension", AdaptSettingsDirectoryName, "Snapshots");
-        }
-
-        private static List<AdaptPtSnapshotInfo> LoadAdaptPtSnapshots()
-        {
-            var snapshots = new List<AdaptPtSnapshotInfo>();
-            string rootDirectory = GetAdaptSnapshotsRootDirectory();
-            if (string.IsNullOrWhiteSpace(rootDirectory) || !Directory.Exists(rootDirectory))
-            {
-                return snapshots;
-            }
-
-            IEnumerable<string> files;
-            try
-            {
-                files = Directory.EnumerateFiles(rootDirectory, "pt-import-*.json", SearchOption.AllDirectories);
-            }
-            catch
-            {
-                return snapshots;
-            }
-
-            foreach (string path in files)
-            {
-                try
-                {
-                    string json = File.ReadAllText(path, Encoding.UTF8);
-                    PtImportJsonDocument document = CamboBimJson.Deserialize<PtImportJsonDocument>(json);
-                    if (document == null)
-                    {
-                        continue;
-                    }
-
-                    FileInfo info = new FileInfo(path);
-                    snapshots.Add(new AdaptPtSnapshotInfo
-                    {
-                        JsonPath = path,
-                        SnapshotTimeLocal = info.Exists ? info.LastWriteTime : DateTime.MinValue,
-                        Document = document
-                    });
-                }
-                catch
-                {
-                }
-            }
-
-            return snapshots
-                .OrderByDescending(item => item.SnapshotTimeLocal)
-                .ThenByDescending(item => item.JsonPath ?? "", StringComparer.OrdinalIgnoreCase)
-                .ToList();
-        }
-
-        private static AdaptPtSnapshotInfo FindLatestAdaptPtSnapshotForSourcePath(
-            string sourcePath,
-            IEnumerable<AdaptPtSnapshotInfo> snapshots)
-        {
-            string normalizedSourcePath = NormalizeAdaptComparablePath(sourcePath);
-            string sourceToken = NormalizeAdaptFileToken(Path.GetFileNameWithoutExtension(sourcePath) ?? "");
-
-            return (snapshots ?? Enumerable.Empty<AdaptPtSnapshotInfo>())
-                .Where(item => item != null)
-                .Select(item => new
-                {
-                    Snapshot = item,
-                    Score = GetAdaptSnapshotMatchScore(item, normalizedSourcePath, sourceToken)
-                })
-                .Where(item => item.Score > 0)
-                .OrderByDescending(item => item.Score)
-                .ThenByDescending(item => item.Snapshot.SnapshotTimeLocal)
-                .Select(item => item.Snapshot)
-                .FirstOrDefault();
-        }
-
-        private static int GetAdaptSnapshotMatchScore(
-            AdaptPtSnapshotInfo snapshot,
-            string normalizedSourcePath,
-            string sourceToken)
-        {
-            if (snapshot == null)
-            {
-                return 0;
-            }
-
-            string snapshotSourcePath = NormalizeAdaptComparablePath(snapshot.SourcePath);
-            if (!string.IsNullOrWhiteSpace(normalizedSourcePath) &&
-                !string.IsNullOrWhiteSpace(snapshotSourcePath) &&
-                string.Equals(snapshotSourcePath, normalizedSourcePath, StringComparison.OrdinalIgnoreCase))
-            {
-                return 4;
-            }
-
-            if (string.IsNullOrWhiteSpace(sourceToken))
-            {
-                return 0;
-            }
-
-            string snapshotToken = NormalizeAdaptFileToken(Path.GetFileNameWithoutExtension(snapshot.SourcePath) ?? "");
-            if (!string.IsNullOrWhiteSpace(snapshotToken) &&
-                string.Equals(snapshotToken, sourceToken, StringComparison.OrdinalIgnoreCase))
-            {
-                return 3;
-            }
-
-            string displayToken = NormalizeAdaptFileToken(snapshot.DisplayName);
-            if (!string.IsNullOrWhiteSpace(displayToken) &&
-                string.Equals(displayToken, sourceToken, StringComparison.OrdinalIgnoreCase))
-            {
-                return 2;
-            }
-
-            string projectToken = NormalizeAdaptFileToken(snapshot.Document?.Source?.ProjectName ?? "");
-            if (!string.IsNullOrWhiteSpace(projectToken) &&
-                string.Equals(projectToken, sourceToken, StringComparison.OrdinalIgnoreCase))
-            {
-                return 1;
-            }
-
-            return 0;
-        }
-
-        private static string NormalizeAdaptComparablePath(string path)
-        {
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                return "";
-            }
-
-            try
-            {
-                return Path.GetFullPath(path).Trim();
-            }
-            catch
-            {
-                return path.Trim();
-            }
+            PtDrawingSettingsStore.SaveValues(
+                _adaptLastFolder,
+                _adaptLastProjectPath,
+                _adaptCadImportMode,
+                _adaptShopMarkPrefix,
+                _adaptShopMarkStartNumber,
+                _adaptShopMarkDigits,
+                _adaptShopMarkSequenceMode,
+                _adaptPreserveCadShopMarks);
         }
 
         private static PtImportJsonDocument TryBuildAdaptAuditDocumentFromSource(
             string sourcePath,
             AdaptImportWorkflowOption workflow)
         {
-            if (workflow == AdaptImportWorkflowOption.CadDrawingImport)
-            {
-                return null;
-            }
-
-            try
-            {
-                AdaptTendonImportReadResult result = ReadAdaptTendonProfileFile(sourcePath);
-                if (result == null || result.Segments.Count == 0)
-                {
-                    return null;
-                }
-
-                PtImportJsonDocument document = PtJsonMapper.CreateFromAdaptSegments(sourcePath, result.Mode, result.Segments);
-                if (document == null)
-                {
-                    return null;
-                }
-
-                document.Notes.Add("Generated directly from the source file for audit preview.");
-                return document;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static IList<MhnkCadPreviewItem> BuildAdaptAuditPreviewItems(
-            PtImportJsonDocument document,
-            AdaptImportWorkflowOption workflow,
-            AdaptShopMarkSettings settings)
-        {
-            List<AdaptPtAuditAssignment> assignments = BuildAdaptAuditAssignments(document, workflow, settings);
-            var items = new List<MhnkCadPreviewItem>();
-            foreach (AdaptPtAuditAssignment assignment in assignments)
-            {
-                PtImportJsonTendon tendon = assignment.Tendon ?? new PtImportJsonTendon();
-                string currentMark = (assignment.CurrentMark ?? "").Trim();
-                string proposedMark = (assignment.ProposedMark ?? "").Trim();
-                string label = BuildAdaptAuditDefaultLabel(tendon);
-                string layer = (tendon.SourceLayer ?? "").Trim();
-                if (string.IsNullOrWhiteSpace(layer))
-                {
-                    layer = (tendon.ProfileName ?? "").Trim();
-                }
-
-                if (string.IsNullOrWhiteSpace(layer))
-                {
-                    layer = "-";
-                }
-
-                string rule = assignment.IsCadLabel
-                    ? "CAD label"
-                    : (!string.IsNullOrWhiteSpace(tendon.TendonType) ? tendon.TendonType.Trim() : "Auto");
-                string markNote = string.IsNullOrWhiteSpace(currentMark)
-                    ? "Current: -"
-                    : (string.Equals(currentMark, proposedMark, StringComparison.OrdinalIgnoreCase)
-                        ? "Current kept: " + currentMark
-                        : "Current: " + currentMark);
-
-                items.Add(new MhnkCadPreviewItem
-                {
-                    Index = assignment.RowNumber.ToString(CultureInfo.InvariantCulture),
-                    Source = workflow == AdaptImportWorkflowOption.CadDrawingImport ? "DWG / DXF" : "Direct ADAPT",
-                    Layer = layer,
-                    Rule = TruncateAdaptAuditText(label, 26),
-                    Target = proposedMark,
-                    Quantity = BuildAdaptAuditQuantityText(assignment.LengthFt),
-                    Status = "Ready",
-                    Notes = markNote +
-                        (assignment.IsCadLabel ? " | CAD label" : " | Renumber") +
-                        (string.IsNullOrWhiteSpace(tendon.TendonName) ? "" : " | Tendon: " + TruncateAdaptAuditText(tendon.TendonName, 24))
-                });
-            }
-
-            return items;
-        }
-
-        private static string BuildAdaptAuditPreviewSummary(
-            string sourcePath,
-            AdaptImportWorkflowOption workflow,
-            AdaptPtSnapshotInfo snapshot,
-            PtImportJsonDocument document,
-            AdaptShopMarkSettings settings,
-            IEnumerable<MhnkCadPreviewItem> previewItems)
-        {
-            List<AdaptPtAuditAssignment> assignments = BuildAdaptAuditAssignments(document, workflow, settings);
-            int changeCount = assignments.Count(item => !string.Equals(item.CurrentMark ?? "", item.ProposedMark ?? "", StringComparison.OrdinalIgnoreCase));
-            string snapshotText = snapshot == null
-                ? "Live source preview"
-                : snapshot.SnapshotTimeLocal.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
-
-            return
-                "Action: Renumber / Audit Existing PT" + Environment.NewLine +
-                "Source: " + Path.GetFileName(sourcePath) + Environment.NewLine +
-                "Method: " + (workflow == AdaptImportWorkflowOption.CadDrawingImport ? "DWG / DXF" : "Direct ADAPT") + Environment.NewLine +
-                "Snapshot: " + snapshotText + Environment.NewLine +
-                "Tendons audited: " + assignments.Count.ToString(CultureInfo.InvariantCulture) + Environment.NewLine +
-                "Marks changing: " + changeCount.ToString(CultureInfo.InvariantCulture) + Environment.NewLine +
-                "Proposed first mark: " + BuildAdaptAuditShopMark(settings.StartNumber, settings.Prefix, settings.Digits) + Environment.NewLine +
-                "Sequence: " + DescribeAdaptShopMarkSequenceMode(settings.SequenceMode) +
-                (workflow == AdaptImportWorkflowOption.CadDrawingImport
-                    ? Environment.NewLine + "CAD label reuse: " + (settings.PreserveCadShopMarks ? "Enabled" : "Disabled")
-                    : "");
-        }
-
-        private static List<AdaptPtAuditAssignment> BuildAdaptAuditAssignments(
-            PtImportJsonDocument document,
-            AdaptImportWorkflowOption workflow,
-            AdaptShopMarkSettings settings)
-        {
-            bool isCadWorkflow = workflow == AdaptImportWorkflowOption.CadDrawingImport ||
-                string.Equals(document?.ImportMethod, "cad-dwg-dxf", StringComparison.OrdinalIgnoreCase);
-
-            List<AdaptPtAuditCandidate> orderedCandidates = OrderAdaptAuditCandidates(
-                BuildAdaptAuditCandidates(document),
-                settings?.SequenceMode ?? AdaptPtShopMarkSequenceMode.SourceAndName,
-                isCadWorkflow);
-
-            var usedMarks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (isCadWorkflow && settings?.PreserveCadShopMarks != false)
-            {
-                foreach (AdaptPtAuditCandidate candidate in orderedCandidates.Where(item => item != null && item.IsCadLabel))
-                {
-                    string mark = (candidate.Tendon?.ShopMark ?? "").Trim();
-                    if (!string.IsNullOrWhiteSpace(mark))
-                    {
-                        usedMarks.Add(mark);
-                    }
-                }
-            }
-
-            int nextNumber = Math.Max(1, settings?.StartNumber ?? 1);
-            var assignments = new List<AdaptPtAuditAssignment>();
-            for (int i = 0; i < orderedCandidates.Count; i++)
-            {
-                AdaptPtAuditCandidate candidate = orderedCandidates[i];
-                PtImportJsonTendon tendon = candidate?.Tendon ?? new PtImportJsonTendon();
-                string currentMark = (tendon.ShopMark ?? "").Trim();
-                string proposedMark;
-
-                if (isCadWorkflow &&
-                    settings?.PreserveCadShopMarks != false &&
-                    candidate != null &&
-                    candidate.IsCadLabel &&
-                    !string.IsNullOrWhiteSpace(currentMark))
-                {
-                    proposedMark = currentMark;
-                }
-                else
-                {
-                    proposedMark = BuildNextAdaptAuditShopMark(
-                        usedMarks,
-                        ref nextNumber,
-                        settings?.Prefix,
-                        settings?.Digits ?? 3);
-                }
-
-                assignments.Add(new AdaptPtAuditAssignment
-                {
-                    RowNumber = i + 1,
-                    Tendon = tendon,
-                    CurrentMark = currentMark,
-                    ProposedMark = proposedMark,
-                    LengthFt = candidate?.LengthFt ?? 0.0,
-                    IsCadLabel = candidate != null && candidate.IsCadLabel
-                });
-            }
-
-            return assignments;
-        }
-
-        private static List<AdaptPtAuditCandidate> BuildAdaptAuditCandidates(PtImportJsonDocument document)
-        {
-            var candidates = new List<AdaptPtAuditCandidate>();
-            foreach (PtImportJsonTendon tendon in (document?.Tendons ?? new List<PtImportJsonTendon>()).Where(item => item != null))
-            {
-                IList<PtImportJsonPoint> points = tendon.CenterlinePoints ?? new List<PtImportJsonPoint>();
-                candidates.Add(new AdaptPtAuditCandidate
-                {
-                    Tendon = tendon,
-                    AnchorXFt = GetAdaptAuditAnchorCoordinate(points, useX: true),
-                    AnchorYFt = GetAdaptAuditAnchorCoordinate(points, useX: false),
-                    LengthFt = GetAdaptAuditLengthFt(tendon),
-                    Signature = BuildAdaptAuditSignature(points),
-                    DefaultLabel = BuildAdaptAuditDefaultLabel(tendon),
-                    IsCadLabel = IsAdaptAuditCadLabel(tendon)
-                });
-            }
-
-            return candidates;
-        }
-
-        private static List<AdaptPtAuditCandidate> OrderAdaptAuditCandidates(
-            IEnumerable<AdaptPtAuditCandidate> candidates,
-            AdaptPtShopMarkSequenceMode sequenceMode,
-            bool isCadWorkflow)
-        {
-            IEnumerable<AdaptPtAuditCandidate> query = (candidates ?? Enumerable.Empty<AdaptPtAuditCandidate>())
-                .Where(item => item != null);
-
-            switch (sequenceMode)
-            {
-                case AdaptPtShopMarkSequenceMode.LeftToRight:
-                    query = query
-                        .OrderBy(item => item.AnchorXFt)
-                        .ThenBy(item => item.AnchorYFt)
-                        .ThenBy(item => item.Signature ?? "", StringComparer.OrdinalIgnoreCase);
-                    break;
-                case AdaptPtShopMarkSequenceMode.BottomToTop:
-                    query = query
-                        .OrderBy(item => item.AnchorYFt)
-                        .ThenBy(item => item.AnchorXFt)
-                        .ThenBy(item => item.Signature ?? "", StringComparer.OrdinalIgnoreCase);
-                    break;
-                case AdaptPtShopMarkSequenceMode.TopToBottom:
-                    query = query
-                        .OrderByDescending(item => item.AnchorYFt)
-                        .ThenBy(item => item.AnchorXFt)
-                        .ThenBy(item => item.Signature ?? "", StringComparer.OrdinalIgnoreCase);
-                    break;
-                case AdaptPtShopMarkSequenceMode.LongToShort:
-                    query = query
-                        .OrderByDescending(item => item.LengthFt)
-                        .ThenBy(item => item.AnchorYFt)
-                        .ThenBy(item => item.AnchorXFt)
-                        .ThenBy(item => item.Signature ?? "", StringComparer.OrdinalIgnoreCase);
-                    break;
-                default:
-                    query = isCadWorkflow
-                        ? query
-                            .OrderBy(item => item.IsCadLabel ? 0 : 1)
-                            .ThenBy(item => item.IsCadLabel ? (item.Tendon?.ShopMark ?? "") : "", StringComparer.OrdinalIgnoreCase)
-                            .ThenBy(item => item.Signature ?? "", StringComparer.OrdinalIgnoreCase)
-                            .ThenBy(item => item.LengthFt)
-                        : query
-                            .OrderBy(item => item.DefaultLabel ?? "", StringComparer.OrdinalIgnoreCase)
-                            .ThenBy(item => item.Signature ?? "", StringComparer.OrdinalIgnoreCase)
-                            .ThenBy(item => item.LengthFt);
-                    break;
-            }
-
-            return query.ToList();
-        }
-
-        private static string BuildAdaptAuditDefaultLabel(PtImportJsonTendon tendon)
-        {
-            if (tendon == null)
-            {
-                return "";
-            }
-
-            string profile = (tendon.ProfileName ?? "").Trim();
-            string tendonName = (tendon.TendonName ?? "").Trim();
-            if (!string.IsNullOrWhiteSpace(profile) &&
-                !string.IsNullOrWhiteSpace(tendonName) &&
-                !string.Equals(profile, tendonName, StringComparison.OrdinalIgnoreCase))
-            {
-                return profile + " / " + tendonName;
-            }
-
-            if (!string.IsNullOrWhiteSpace(tendonName))
-            {
-                return tendonName;
-            }
-
-            if (!string.IsNullOrWhiteSpace(profile))
-            {
-                return profile;
-            }
-
-            if (!string.IsNullOrWhiteSpace(tendon.SourceLabel))
-            {
-                return tendon.SourceLabel.Trim();
-            }
-
-            return (tendon.TendonId ?? "").Trim();
-        }
-
-        private static bool IsAdaptAuditCadLabel(PtImportJsonTendon tendon)
-        {
-            if (tendon == null)
-            {
-                return false;
-            }
-
-            if (string.Equals((tendon.TendonType ?? "").Trim(), "cad-labeled-chain", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            if (string.Equals((tendon.SourceLabel ?? "").Trim(), "CAD label", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            return (tendon.Tags ?? new List<string>())
-                .Any(tag => string.Equals((tag ?? "").Trim(), "cad-label", StringComparison.OrdinalIgnoreCase));
-        }
-
-        private static double GetAdaptAuditLengthFt(PtImportJsonTendon tendon)
-        {
-            if (tendon?.ProfileHints?.TotalLengthFt is double hintedLength && hintedLength > 1.0e-6)
-            {
-                return hintedLength;
-            }
-
-            IList<PtImportJsonPoint> points = tendon?.CenterlinePoints ?? new List<PtImportJsonPoint>();
-            double length = 0.0;
-            for (int i = 1; i < points.Count; i++)
-            {
-                double dx = points[i].XFt - points[i - 1].XFt;
-                double dy = points[i].YFt - points[i - 1].YFt;
-                double dz = points[i].ZFt - points[i - 1].ZFt;
-                length += Math.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
-            }
-
-            return length;
-        }
-
-        private static double GetAdaptAuditAnchorCoordinate(IList<PtImportJsonPoint> points, bool useX)
-        {
-            if (points == null || points.Count == 0)
-            {
-                return 0.0;
-            }
-
-            double min = useX ? points.Min(point => point.XFt) : points.Min(point => point.YFt);
-            double max = useX ? points.Max(point => point.XFt) : points.Max(point => point.YFt);
-            return 0.5 * (min + max);
-        }
-
-        private static string BuildAdaptAuditSignature(IList<PtImportJsonPoint> points)
-        {
-            if (points == null || points.Count == 0)
-            {
-                return "";
-            }
-
-            return string.Join(
-                ";",
-                points.Select(point =>
-                    point.XFt.ToString("0.###", CultureInfo.InvariantCulture) + "," +
-                    point.YFt.ToString("0.###", CultureInfo.InvariantCulture) + "," +
-                    point.ZFt.ToString("0.###", CultureInfo.InvariantCulture)));
-        }
-
-        private static string BuildNextAdaptAuditShopMark(
-            ISet<string> usedMarks,
-            ref int nextNumber,
-            string prefix,
-            int digits)
-        {
-            ISet<string> registry = usedMarks ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            int number = Math.Max(1, nextNumber);
-            string mark;
-            do
-            {
-                mark = BuildAdaptAuditShopMark(number, prefix, digits);
-                number++;
-            }
-            while (registry.Contains(mark));
-
-            registry.Add(mark);
-            nextNumber = number;
-            return mark;
-        }
-
-        private static string BuildAdaptAuditShopMark(int number, string prefix, int digits)
-        {
-            string safePrefix = NormalizeAdaptAuditShopMarkPrefix(prefix);
-            int safeDigits = Math.Max(1, Math.Min(6, digits));
-            int safeNumber = Math.Max(1, number);
-            return safePrefix + "-" + safeNumber.ToString("D" + safeDigits.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
-        }
-
-        private static string NormalizeAdaptAuditShopMarkPrefix(string prefix)
-        {
-            string normalized = Regex.Replace((prefix ?? "").Trim(), @"[^A-Za-z0-9_\-]+", "");
-            return string.IsNullOrWhiteSpace(normalized) ? "PT" : normalized;
-        }
-
-        private static string BuildAdaptAuditQuantityText(double lengthFt)
-        {
-            double lengthMeters = lengthFt * 0.3048;
-            return lengthMeters.ToString("0.0", CultureInfo.InvariantCulture) + " m";
-        }
-
-        private static string TruncateAdaptAuditText(string text, int maxLength)
-        {
-            string value = (text ?? "").Trim();
-            if (string.IsNullOrWhiteSpace(value) || maxLength < 4 || value.Length <= maxLength)
-            {
-                return value;
-            }
-
-            return value.Substring(0, maxLength - 3) + "...";
-        }
-
-        private static bool TryFindLatestAdaptCadExport(string projectPath, out string exportPath)
-        {
-            exportPath = "";
-            if (string.IsNullOrWhiteSpace(projectPath))
-            {
-                return false;
-            }
-
-            string projectDirectory;
-            try
-            {
-                projectDirectory = Path.GetDirectoryName(projectPath);
-            }
-            catch
-            {
-                return false;
-            }
-
-            if (string.IsNullOrWhiteSpace(projectDirectory) || !Directory.Exists(projectDirectory))
-            {
-                return false;
-            }
-
-            string projectName = Path.GetFileNameWithoutExtension(projectPath) ?? "";
-            List<string> folders = BuildAdaptExportSearchFolders(projectDirectory);
-            List<string> files = new List<string>();
-            foreach (string folder in folders)
-            {
-                AddAdaptCadFiles(folder, files);
-            }
-
-            if (files.Count == 0)
-            {
-                return false;
-            }
-
-            string projectToken = NormalizeAdaptFileToken(projectName);
-            var best = files
-                .Select(path => new FileInfo(path))
-                .Where(info => info.Exists)
-                .Select(info => new
-                {
-                    Info = info,
-                    ProjectNameMatch = !string.IsNullOrWhiteSpace(projectToken) &&
-                        NormalizeAdaptFileToken(Path.GetFileNameWithoutExtension(info.Name)).Contains(projectToken)
-                })
-                .OrderByDescending(item => item.ProjectNameMatch)
-                .ThenByDescending(item => item.Info.LastWriteTimeUtc)
-                .FirstOrDefault();
-
-            if (best == null)
-            {
-                return false;
-            }
-
-            exportPath = best.Info.FullName;
-            return true;
-        }
-
-        private static List<string> BuildAdaptExportSearchFolders(string projectDirectory)
-        {
-            var folders = new List<string>();
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            void AddFolder(string folder)
-            {
-                if (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder) && seen.Add(folder))
-                {
-                    folders.Add(folder);
-                }
-            }
-
-            AddFolder(projectDirectory);
-            string[] names =
-            {
-                "Export",
-                "Exports",
-                "DWG",
-                "DXF",
-                "CAD",
-                "Drawings",
-                "Drawing"
-            };
-
-            foreach (string name in names)
-            {
-                AddFolder(Path.Combine(projectDirectory, name));
-            }
-
-            return folders;
-        }
-
-        private static void AddAdaptCadFiles(string folder, List<string> files)
-        {
-            if (string.IsNullOrWhiteSpace(folder) || files == null)
-            {
-                return;
-            }
-
-            try
-            {
-                files.AddRange(Directory.GetFiles(folder, "*.dwg", SearchOption.TopDirectoryOnly));
-                files.AddRange(Directory.GetFiles(folder, "*.dxf", SearchOption.TopDirectoryOnly));
-            }
-            catch
-            {
-            }
-        }
-
-        private static string NormalizeAdaptFileToken(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return "";
-            }
-
-            return Regex.Replace(value.ToLowerInvariant(), @"[^a-z0-9]+", "");
+            return PtDrawingSourceService.TryBuildAuditDocumentFromSource(
+                sourcePath,
+                workflow == AdaptImportWorkflowOption.CadDrawingImport,
+                ReadAdaptTendonProfileFile);
         }
 
         private static string DescribeAdaptCadImportMode(AdaptCadImportMode mode)
@@ -2065,41 +1289,13 @@ namespace CamboBIM.Revit2024.Addin
             }
         }
 
-        private static bool IsAdaptCadDrawingPath(string path)
-        {
-            string ext = Path.GetExtension(path) ?? "";
-            return string.Equals(ext, ".dwg", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(ext, ".dxf", StringComparison.OrdinalIgnoreCase);
-        }
-
         private static AdaptTendonImportReadResult ReadAdaptTendonProfileFile(string path)
         {
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            {
-                return new AdaptTendonImportReadResult();
-            }
-
-            string ext = Path.GetExtension(path) ?? "";
-            if (string.Equals(ext, ".adm", StringComparison.OrdinalIgnoreCase))
-            {
-                return ReadAdaptAdmTendonGeometry(path);
-            }
-
-            if (string.Equals(ext, ".dwg", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(ext, ".dxf", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException(
-                    "ADAPT DWG/DXF drawings are handled by the CAD link path. Select the drawing with Import ADAPT so it can be linked into Revit and selected as the CAD2MODEL source.");
-            }
-
-            if (string.Equals(ext, ".xlsx", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(ext, ".xlsm", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(ext, ".xls", StringComparison.OrdinalIgnoreCase))
-            {
-                return ReadAdaptTendonProfileExcel(path);
-            }
-
-            return ReadAdaptTendonProfileText(path);
+            return PtDrawingSourceService.ReadTendonProfileFile(
+                path,
+                ReadAdaptAdmTendonGeometry,
+                ReadAdaptTendonProfileExcel,
+                ReadAdaptTendonProfileText);
         }
 
         private static AdaptTendonImportReadResult ReadAdaptAdmTendonGeometry(string path)
@@ -2313,7 +1509,7 @@ namespace CamboBIM.Revit2024.Addin
                     continue;
                 }
 
-                string normalized = NormalizeAdaptFileToken(displayName);
+                string normalized = PtDrawingSourceService.NormalizeFileToken(displayName);
                 if (!normalized.Contains("current") &&
                     !normalized.Contains("tendon") &&
                     !normalized.Contains("band") &&
@@ -2515,8 +1711,8 @@ namespace CamboBIM.Revit2024.Addin
 
         private static bool IsAdaptAdmTendonLayer(string layerToken, string layerName)
         {
-            string token = NormalizeAdaptFileToken(layerToken);
-            string name = NormalizeAdaptFileToken(layerName);
+            string token = PtDrawingSourceService.NormalizeFileToken(layerToken);
+            string name = PtDrawingSourceService.NormalizeFileToken(layerName);
             if (name.Contains("ctrl") || name.Contains("supportbar") || name.Contains("txt") || name.Contains("template"))
             {
                 return false;

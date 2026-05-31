@@ -1,0 +1,91 @@
+param(
+  [string]$Message = "",
+  [string]$Branch = "",
+  [switch]$NoPush
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+Push-Location $repoRoot
+
+try {
+  $currentBranch = (git branch --show-current).Trim()
+  if ([string]::IsNullOrWhiteSpace($currentBranch)) {
+    throw "Could not detect current Git branch."
+  }
+
+  if ([string]::IsNullOrWhiteSpace($Branch) -or $Branch -in @("current", ".")) {
+    $Branch = $currentBranch
+  }
+
+  if ($currentBranch -ne $Branch) {
+    throw "Current branch is '$currentBranch', but this PT save was asked to use '$Branch'. Switch branch or run with -Branch current."
+  }
+
+  $ptPaths = @(
+    "CadToModelExternalEventHandler.cs",
+    "CadToModelRequest.cs",
+    "CamboBIM.Revit2024.Addin.csproj",
+    "CamboBIM.Revit2025.Addin.csproj",
+    "CamboBIMWindow.AdaptTendonImport.cs",
+    "PtJsonMapper.cs",
+    "PtJsonModels.cs",
+    "Run-Git-Daily-Save-RevitExtension-PT.cmd",
+    "Operation Local and Online/02-Step2-PT-Only-Save.cmd",
+    "scripts/git-daily-save-pt.ps1",
+    "docs/ADAPT_BUILDER_IMPORT_GUIDE.md",
+    "docs/ADAPT_DIRECT_IMPORT_ARCHITECTURE.md",
+    "docs/ADAPT_PROFILE_VISUAL_ROADMAP.md",
+    "docs/ADAPT_TWO_OPTION_IMPORT_STRATEGY.md",
+    "docs/PT_COMBINED_EXTENSION_INTEGRATION_PLAN.md",
+    "docs/PT_JSON_SCHEMA.md",
+    "docs/PT_JSON_SCHEMA_EXAMPLE.json",
+    "docs/PT_REVIT_TEST_CHECKLIST.md",
+    "docs/PTBOT_ALIGN_TENDON_BUBBLES_WORKFLOW.md",
+    "docs/PTBOT_CREATE_3D_VIEW_WORKFLOW.md",
+    "docs/PTBOT_DEMO_SHOP_DRAWINGS_IN_MINUTES_WORKFLOW.md",
+    "docs/PTBOT_DIMENSION_TENDONS_WORKFLOW.md",
+    "docs/PTBOT_LINK_TENDONS_WORKFLOW.md",
+    "docs/PTBOT_RAM_CONCEPT_IMPORT_WORKFLOW.md",
+    "docs/PTBOT_RESOLVE_CHAIR_CLASHES_WORKFLOW.md",
+    "docs/PTBOT_SHOW_HIDE_INTERMEDIATE_CHAIRS_WORKFLOW.md",
+    "docs/PTBOTS_BENCHMARK_OVERVIEW.md",
+    "docs/PTBOTS_CHANNEL_ALIGNMENT_MATRIX.md",
+    "docs/RISA_ADAPT_REVIT_RETURN_WORKFLOW.md"
+  )
+
+  $stageablePaths = @($ptPaths | Where-Object { Test-Path $_ })
+  if ($stageablePaths.Count -eq 0) {
+    throw "No PT paths were found to stage."
+  }
+
+  & git add -A -- @stageablePaths
+
+  git diff --cached --quiet
+  $hasStagedChanges = ($LASTEXITCODE -ne 0)
+
+  if (-not $hasStagedChanges) {
+    Write-Host "No PT changes to commit."
+    exit 0
+  }
+
+  if ([string]::IsNullOrWhiteSpace($Message)) {
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm"
+    $Message = "chore: PT daily save $timestamp"
+  }
+
+  git commit -m $Message
+
+  if ($NoPush) {
+    Write-Host "PT commit created. Push skipped because -NoPush was provided."
+    exit 0
+  }
+
+  git push origin $Branch
+  Write-Host "PT daily save complete on branch '$Branch'."
+}
+finally {
+  Pop-Location
+}

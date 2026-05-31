@@ -11,13 +11,7 @@ namespace CamboBIM.Revit2024.Addin
         {
             get
             {
-                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                if (string.IsNullOrWhiteSpace(localAppData))
-                {
-                    localAppData = Path.GetTempPath();
-                }
-
-                return Path.Combine(localAppData, "MHNK", "Logs");
+                return ExtensionEnvironment.GetLogsDirectory();
             }
         }
 
@@ -25,9 +19,7 @@ namespace CamboBIM.Revit2024.Addin
         {
             get
             {
-                string fileName = "MHNK-Revit" + CamboBimRuntime.RevitYear + "-" +
-                                  DateTime.Now.ToString("yyyyMMdd") + ".log";
-                return Path.Combine(LogDirectory, fileName);
+                return ExtensionEnvironment.GetCurrentLogFilePath("MHNK-Revit" + CamboBimRuntime.RevitYear);
             }
         }
 
@@ -52,7 +44,7 @@ namespace CamboBIM.Revit2024.Addin
             {
                 lock (SyncRoot)
                 {
-                    Directory.CreateDirectory(LogDirectory);
+                    ExtensionEnvironment.EnsureDirectory(LogDirectory);
                     string line =
                         DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") +
                         " [" + (level ?? "INFO") + "] " +

@@ -2,6 +2,8 @@
 
 RevitExtension is the MHNK/CamboBIM Revit add-in source tree for CAD-to-model, QS measurement, rebar/formwork tooling, site progress, drawing automation, licensing, and related Revit workflows.
 
+The whole-extension restructure target is documented in `docs/PROJECT_ARCHITECTURE_RESTRUCTURE_PLAN.md`.
+
 ## Verified Local Build
 
 The locally verified target on this workstation is Revit 2025:

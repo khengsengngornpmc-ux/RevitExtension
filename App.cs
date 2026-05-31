@@ -30,6 +30,7 @@ namespace CamboBIM.Revit2024.Addin
             string assemblyPath = Assembly.GetExecutingAssembly().Location;
             const string camboBimTabName = "MHNK";
             MhnkLogger.Info("MHNK startup. Assembly: " + assemblyPath);
+            FeatureTraceWriter.WriteStage("CORE", "Startup", "MHNK startup. Assembly: " + assemblyPath);
 
             CreateTabWithTools(application, camboBimTabName, assemblyPath, "MHNK");
             TryAttachRibbonTabActivationHandler(camboBimTabName);
@@ -40,6 +41,7 @@ namespace CamboBIM.Revit2024.Addin
         public Result OnShutdown(UIControlledApplication application)
         {
             MhnkLogger.Info("MHNK shutdown.");
+            FeatureTraceWriter.WriteStage("CORE", "Shutdown", "MHNK shutdown.");
             DetachRibbonTabActivationHandler();
             // Keep cached seat/session so users are not prompted to log in again next launch.
             _licenseService?.ReleaseOnShutdown(releaseSeat: false);

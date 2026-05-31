@@ -32,10 +32,16 @@ namespace CamboBIM.Revit2024.Addin
             AddDocumentInfo(lines, commandData);
             lines.Add("");
 
+            AddEnvironmentInfo(lines);
+            lines.Add("");
+
             AddManifestInfo(lines, revitYear, assemblyPath);
             lines.Add("");
 
             AddLicenseInfo(lines);
+            lines.Add("");
+
+            AddFeatureCatalogInfo(lines);
 
             return string.Join(Environment.NewLine, lines.ToArray());
         }
@@ -126,6 +132,41 @@ namespace CamboBIM.Revit2024.Addin
             }
         }
 
+        private static void AddEnvironmentInfo(List<string> lines)
+        {
+            Add(lines, "Local root", ExtensionEnvironment.LocalRoot);
+            Add(lines, "Roaming root", ExtensionEnvironment.RoamingRoot);
+            Add(lines, "Shared root", ExtensionEnvironment.SharedRoot);
+
+            string architectureGuidePath = "";
+            try
+            {
+                string assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? "";
+                string projectDir = ResolveProjectDirectory(assemblyDir);
+                architectureGuidePath = Path.Combine(projectDir, "docs", "PROJECT_ARCHITECTURE_RESTRUCTURE_PLAN.md");
+            }
+            catch
+            {
+                architectureGuidePath = "";
+            }
+
+            if (!string.IsNullOrWhiteSpace(architectureGuidePath))
+            {
+                Add(lines, "Architecture guide", architectureGuidePath + (File.Exists(architectureGuidePath) ? " [found]" : " [missing]"));
+            }
+        }
+
+        private static void AddFeatureCatalogInfo(List<string> lines)
+        {
+            Add(lines, "Feature catalog count", Convert.ToString(ExtensionFeatureCatalog.All.Count));
+
+            for (int i = 0; i < ExtensionFeatureCatalog.All.Count; i++)
+            {
+                ExtensionFeature feature = ExtensionFeatureCatalog.All[i];
+                Add(lines, "Feature " + (i + 1), feature.Id + " | " + feature.DisplayName + " | " + feature.Workspace);
+            }
+        }
+
         private static IEnumerable<string> GetManifestCandidates(string revitYear)
         {
             string fileName = "CamboBIM.Revit" + revitYear + ".Addin.addin";
@@ -212,6 +253,34 @@ namespace CamboBIM.Revit2024.Addin
             {
                 return string.Equals(left ?? "", right ?? "", StringComparison.OrdinalIgnoreCase);
             }
+        }
+
+        private static string ResolveProjectDirectory(string assemblyDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(assemblyDirectory))
+            {
+                return assemblyDirectory ?? "";
+            }
+
+            string current = assemblyDirectory;
+            for (int i = 0; i < 6; i++)
+            {
+                string candidate = Path.Combine(current, "docs");
+                if (Directory.Exists(candidate))
+                {
+                    return current;
+                }
+
+                DirectoryInfo parent = Directory.GetParent(current);
+                if (parent == null)
+                {
+                    break;
+                }
+
+                current = parent.FullName;
+            }
+
+            return assemblyDirectory;
         }
 
         private static void Add(List<string> lines, string label, string value)

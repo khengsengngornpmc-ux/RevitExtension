@@ -227,6 +227,9 @@ Current renumber backbone:
 - ribbon entry split between `Import New PT` and `Renumber / Audit Existing PT`
 - snapshot-backed PT audit preview before regeneration
 - regeneration handoff that reuses the existing direct ADAPT and DWG / DXF import pipelines with updated mark settings
+- persistent PT trace logging under `%APPDATA%\\MHNK\\RevitExtension\\DRAWING_PT\\Logs`
+- PT-only Git save workflow for safer transfer to the Revit / ADAPT Builder PC
+- dedicated Revit test checklist for direct ADAPT, DWG / DXF, and renumber / audit validation
 
 ## Drafting Automation Status
 

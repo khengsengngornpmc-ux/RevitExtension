@@ -14,6 +14,7 @@ namespace CamboBIM.Revit2024.Addin
             {
                 string report = MhnkDiagnostics.BuildReport(commandData);
                 MhnkLogger.Info("Diagnostics opened." + Environment.NewLine + report);
+                FeatureTraceWriter.WriteStage("DIAGNOSTICS", "OpenReport", "Diagnostics report opened.");
 
                 var dialog = new TaskDialog("MHNK Diagnostics");
                 dialog.MainInstruction = "MHNK diagnostics";
