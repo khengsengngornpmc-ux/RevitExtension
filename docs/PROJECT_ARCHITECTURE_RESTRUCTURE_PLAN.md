@@ -28,6 +28,8 @@ Supporting shared and technical foundation already applied:
 - `Host/Commands`
 - `Host/Shell`
 - `Infrastructure/`
+- `Infrastructure/Composition`
+- `Infrastructure/RevitExecution`
 - `Shared/Interop`
 - `Shared/Revit`
 - `Shared/Runtime`
@@ -404,6 +406,31 @@ Complete now:
 - shared JSON file store
 - shared feature catalog
 - shared editor rules
+- lightweight service registry and bootstrapper
+- shared Revit `ExternalEvent` execution boundary
+- shared Revit transaction runner
+
+### Stage 1.1. Revit execution boundary
+
+The next architecture layer has been added so future PT, CAD2MODEL, QS, ARC, and drawing tools can execute Revit API work through one controlled path:
+
+- `Infrastructure/Composition/ExtensionServiceBootstrapper.cs`
+- `Infrastructure/Composition/ExtensionServiceRegistry.cs`
+- `Infrastructure/RevitExecution/IRevitExecutionRequest.cs`
+- `Infrastructure/RevitExecution/RevitExecutionRequestBase.cs`
+- `Infrastructure/RevitExecution/RevitExecutionContext.cs`
+- `Infrastructure/RevitExecution/RevitExecutionQueue.cs`
+- `Infrastructure/RevitExecution/RevitExecutionExternalEventHandler.cs`
+- `Infrastructure/RevitExecution/RevitExecutionBoundary.cs`
+- `Infrastructure/RevitExecution/RevitTransactionRunner.cs`
+
+Feature migration rule:
+
+- UI creates an `IRevitExecutionRequest`
+- UI calls `RevitExecutionBoundary.Raise(request)`
+- the shared `ExternalEvent` handler executes inside Revit's allowed API context
+- feature request code uses `RevitTransactionRunner.Run(...)` for document changes
+- each request writes feature trace logs through `FeatureTraceWriter`
 
 ### Stage 2. Extract PT workflow services
 

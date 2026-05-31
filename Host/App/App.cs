@@ -26,6 +26,17 @@ namespace CamboBIM.Revit2024.Addin
         public Result OnStartup(UIControlledApplication application)
         {
             _licenseService = new OnlineLicenseService();
+            OperationResult serviceStart = ExtensionServiceBootstrapper.Start();
+            if (!serviceStart.Succeeded)
+            {
+                MhnkLogger.Error("MHNK service bootstrap failed: " + serviceStart);
+            }
+
+            OperationResult revitBoundaryStart = RevitExecutionBoundary.Initialize();
+            if (!revitBoundaryStart.Succeeded)
+            {
+                MhnkLogger.Error("MHNK Revit execution boundary failed: " + revitBoundaryStart);
+            }
 
             string assemblyPath = Assembly.GetExecutingAssembly().Location;
             const string camboBimTabName = "MHNK";
@@ -45,6 +56,7 @@ namespace CamboBIM.Revit2024.Addin
             DetachRibbonTabActivationHandler();
             // Keep cached seat/session so users are not prompted to log in again next launch.
             _licenseService?.ReleaseOnShutdown(releaseSeat: false);
+            ExtensionServiceBootstrapper.Stop();
 
             return Result.Succeeded;
         }

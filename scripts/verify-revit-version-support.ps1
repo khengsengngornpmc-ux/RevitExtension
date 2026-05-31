@@ -61,10 +61,10 @@ function Test-ProjectExplicitIncludes {
         [Parameter(Mandatory = $true)][xml]$Xml
     )
 
-    $items = @($Xml.Project.ItemGroup.Compile | Where-Object { $_.Include }) +
-             @($Xml.Project.ItemGroup.Page | Where-Object { $_.Include }) +
-             @($Xml.Project.ItemGroup.Content | Where-Object { $_.Include }) +
-             @($Xml.Project.ItemGroup.Resource | Where-Object { $_.Include })
+    $items = @($Xml.SelectNodes("//ItemGroup/Compile[@Include]")) +
+             @($Xml.SelectNodes("//ItemGroup/Page[@Include]")) +
+             @($Xml.SelectNodes("//ItemGroup/Content[@Include]")) +
+             @($Xml.SelectNodes("//ItemGroup/Resource[@Include]"))
 
     foreach ($item in $items) {
         $include = [string]$item.Include
@@ -77,6 +77,15 @@ function Test-ProjectExplicitIncludes {
             Add-Error "$(Split-Path -Leaf $ProjectPath): missing explicit include '$include'"
         }
     }
+}
+
+function Get-ProjectItemNodes {
+    param([Parameter(Mandatory = $true)][xml]$Xml)
+
+    return @($Xml.SelectNodes("//ItemGroup/Compile[@Include]")) +
+           @($Xml.SelectNodes("//ItemGroup/Page[@Include]")) +
+           @($Xml.SelectNodes("//ItemGroup/Content[@Include]")) +
+           @($Xml.SelectNodes("//ItemGroup/Resource[@Include]"))
 }
 
 function Test-RequiredFile {
@@ -108,6 +117,70 @@ function Test-ManifestTemplate {
 
     if ($raw -notmatch "<FullClassName>\s*CamboBIM\.Revit2024\.Addin\.App\s*</FullClassName>") {
         Add-Error "$relativePath must point to CamboBIM.Revit2024.Addin.App until the shared namespace is migrated."
+    }
+}
+
+function Get-ComparableProjectItems {
+    param([Parameter(Mandatory = $true)][xml]$Xml)
+
+    $nodes = Get-ProjectItemNodes -Xml $Xml
+
+    $items = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($node in $nodes) {
+        $include = [string]$node.Include
+        if ($include -match "^Properties\\Revit\d{4}MissingApiDesignTimeStub\.cs$") {
+            continue
+        }
+
+        $dependentUponNode = $node.SelectSingleNode("DependentUpon")
+        $copyNode = $node.SelectSingleNode("CopyToOutputDirectory")
+        $subTypeNode = $node.SelectSingleNode("SubType")
+        $generatorNode = $node.SelectSingleNode("Generator")
+
+        $dependentUpon = if ($null -eq $dependentUponNode) { "" } else { $dependentUponNode.InnerText }
+        $copyToOutput = if ($null -eq $copyNode) { "" } else { $copyNode.InnerText }
+        $subType = if ($null -eq $subTypeNode) { "" } else { $subTypeNode.InnerText }
+        $generator = if ($null -eq $generatorNode) { "" } else { $generatorNode.InnerText }
+
+        $items.Add("$($node.Name)|$include|$dependentUpon|$copyToOutput|$subType|$generator") | Out-Null
+    }
+
+    return @($items | Sort-Object)
+}
+
+function Test-SharedProjectItemsFile {
+    $relativePath = "CamboBIM.SharedProjectItems.targets"
+    $path = Join-Path $projectRoot $relativePath
+    if (-not (Test-Path -LiteralPath $path)) {
+        Add-Error "Shared project item registry missing: $relativePath"
+        return
+    }
+
+    [xml]$xml = Get-Content -LiteralPath $path
+    $items = @(Get-ComparableProjectItems -Xml $xml)
+    if ($items.Count -eq 0) {
+        Add-Error "$relativePath has no shared Compile/Page/Content/Resource items."
+    }
+
+    Test-ProjectExplicitIncludes -ProjectPath $path -Xml $xml
+}
+
+function Test-SharedProjectItemImports {
+    param([Parameter(Mandatory = $true)][hashtable]$ProjectXmlByYear)
+
+    foreach ($year in $years) {
+        $xml = $ProjectXmlByYear[$year]
+        $importNode = $xml.SelectSingleNode("//Import[@Project='CamboBIM.SharedProjectItems.targets']")
+        if ($null -eq $importNode) {
+            Add-Error "CamboBIM.Revit$year.Addin.csproj does not import CamboBIM.SharedProjectItems.targets."
+        }
+
+        $projectLocalItems = @(Get-ComparableProjectItems -Xml $xml)
+        if ($projectLocalItems.Count -gt 0) {
+            foreach ($item in $projectLocalItems) {
+                Add-Error "CamboBIM.Revit$year.Addin.csproj should not keep shared item locally: $item"
+            }
+        }
     }
 }
 
@@ -189,12 +262,25 @@ try {
 
     Test-RequiredFile -RelativePath "CamboBIM.AllRevitVersions.sln" -Label "All-version solution"
     Test-RequiredFile -RelativePath "docs\REVIT_VERSION_SUPPORT.md" -Label "Version support doc"
+    Test-RequiredFile -RelativePath "scripts\add-shared-project-item.ps1" -Label "Shared item helper"
+    Test-RequiredFile -RelativePath "scripts\build-deploy-exe-all-revit.ps1" -Label "All-version deploy EXE builder"
+    Test-RequiredFile -RelativePath "scripts\build-inno-installer.ps1" -Label "Inno installer builder"
+    Test-RequiredFile -RelativePath "scripts\build-inno-installer-all-revit.ps1" -Label "All-version Inno installer builder"
+    Test-RequiredFile -RelativePath "installer\CamboBIM.Revit2024.Deploy.iss" -Label "Parameterized Inno template"
+    Test-RequiredFile -RelativePath "Infrastructure\Composition\ExtensionServiceBootstrapper.cs" -Label "Composition bootstrapper"
+    Test-RequiredFile -RelativePath "Infrastructure\Composition\ExtensionServiceRegistry.cs" -Label "Service registry"
+    Test-RequiredFile -RelativePath "Infrastructure\RevitExecution\RevitExecutionBoundary.cs" -Label "Revit execution boundary"
+    Test-RequiredFile -RelativePath "Infrastructure\RevitExecution\RevitTransactionRunner.cs" -Label "Revit transaction runner"
+    Test-SharedProjectItemsFile
 
+    $projectXmlByYear = @{}
     foreach ($year in $years) {
         Test-ProjectFile -Year $year
+        $projectXmlByYear[$year] = [xml](Get-Content -LiteralPath (Join-Path $projectRoot "CamboBIM.Revit$year.Addin.csproj"))
         Test-ManifestTemplate -Year $year
         Test-RequiredFile -RelativePath "scripts\deploy-revit$year-addin.ps1" -Label "Deploy wrapper"
         Test-RequiredFile -RelativePath "scripts\reload-revit$year-addin.ps1" -Label "Reload wrapper"
+        Test-RequiredFile -RelativePath "scripts\build-inno-installer-revit$year.ps1" -Label "Inno wrapper"
 
         if ($CheckRevitApi) {
             $apiPath = "C:\Program Files\Autodesk\Revit $year\RevitAPI.dll"
@@ -203,6 +289,8 @@ try {
             }
         }
     }
+
+    Test-SharedProjectItemImports -ProjectXmlByYear $projectXmlByYear
 
     $solutionList = & dotnet sln .\CamboBIM.AllRevitVersions.sln list
     foreach ($year in $years) {

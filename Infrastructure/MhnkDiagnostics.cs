@@ -35,6 +35,9 @@ namespace CamboBIM.Revit2024.Addin
             AddEnvironmentInfo(lines);
             lines.Add("");
 
+            AddExecutionBoundaryInfo(lines);
+            lines.Add("");
+
             AddManifestInfo(lines, revitYear, assemblyPath);
             lines.Add("");
 
@@ -154,6 +157,14 @@ namespace CamboBIM.Revit2024.Addin
             {
                 Add(lines, "Architecture guide", architectureGuidePath + (File.Exists(architectureGuidePath) ? " [found]" : " [missing]"));
             }
+        }
+
+        private static void AddExecutionBoundaryInfo(List<string> lines)
+        {
+            Add(lines, "Service bootstrap", ExtensionServiceBootstrapper.IsStarted ? "started" : "not started");
+            Add(lines, "Registered services", Convert.ToString(ExtensionServiceRegistry.RegisteredServiceCount));
+            Add(lines, "Revit execution boundary", RevitExecutionBoundary.IsInitialized ? "initialized" : "not initialized");
+            Add(lines, "Pending Revit requests", Convert.ToString(RevitExecutionBoundary.PendingRequestCount));
         }
 
         private static void AddFeatureCatalogInfo(List<string> lines)

@@ -9,6 +9,16 @@
 
 Open `CamboBIM.AllRevitVersions.sln` when you want all five host projects in one Visual Studio window.
 
+The common source/page/content/resource registry is centralized in `CamboBIM.SharedProjectItems.targets`. When adding a feature file for ARC, CAD2MODEL, PT Drawing, QS, or any shared module, add the file there once instead of copying it into every Revit-year project.
+
+Preferred helper:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\add-shared-project-item.ps1 -ItemType Compile -Include Features\ArchitectureTools\NewArcTool.cs
+powershell -ExecutionPolicy Bypass -File .\scripts\add-shared-project-item.ps1 -ItemType Page -Include Features\SomeTool\SomeWindow.xaml -SubType Designer -Generator "MSBuild:Compile"
+powershell -ExecutionPolicy Bypass -File .\scripts\add-shared-project-item.ps1 -ItemType Content -Include Config\some-feature.json -CopyToOutputDirectory PreserveNewest
+```
+
 ## 2) Revit API reference path
 The project now uses `$(RevitInstallDir)` for `RevitAPI.dll` and `RevitAPIUI.dll`.
 
@@ -97,7 +107,7 @@ The release DLL is:
 - `.\bin\Revit<year>\x64\Release\CamboBIM.Revit<year>.Addin.dll`
 
 ## 5.1) Deploy using EXE (one-click)
-Build the deploy executable:
+Build one deploy executable:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build-deploy-exe.ps1
@@ -107,9 +117,16 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build-deploy-exe.ps1 -RevitYe
 powershell -ExecutionPolicy Bypass -File .\scripts\build-deploy-exe.ps1 -RevitYear 2027
 ```
 
+Build all deploy executables:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-deploy-exe-all-revit.ps1
+```
+
 Run the deploy executable:
 
 ```powershell
+.\scripts\deploy-revit2023-addin.exe --configuration Release --platform x64 --revit-year 2023
 .\scripts\deploy-revit2024-addin.exe --configuration Debug --platform AnyCPU --revit-year 2024
 .\scripts\deploy-revit2025-addin.exe --configuration Release --platform x64 --revit-year 2025
 .\scripts\deploy-revit2026-addin.exe --configuration Release --platform x64 --revit-year 2026
@@ -119,23 +136,35 @@ Run the deploy executable:
 If you need admin rights to disable duplicate manifests in `%ProgramData%`, run the EXE as Administrator.
 
 ## 5.2) Build installer with Inno Setup
-If you want a Setup installer (`Setup.exe`) for distribution:
+If you want one setup installer per Revit version, install Inno Setup 6 and build the matching Revit runtime first. The production DLL must be a real `Release` add-in DLL from the test/build PC, not a design-time stub.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build-inno-installer.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\build-inno-installer.ps1 -RevitYear 2025 -RuntimeDir .\bin\Revit2025\x64\Release
-powershell -ExecutionPolicy Bypass -File .\scripts\build-inno-installer.ps1 -RevitYear 2026 -RuntimeDir .\bin\Revit2026\x64\Release
+powershell -ExecutionPolicy Bypass -File .\scripts\build-inno-installer-revit2023.ps1 -RuntimeDir .\bin\Revit2023\x64\Release
+powershell -ExecutionPolicy Bypass -File .\scripts\build-inno-installer-revit2024.ps1 -RuntimeDir .\bin\Revit2024\x64\Release
+powershell -ExecutionPolicy Bypass -File .\scripts\build-inno-installer-revit2025.ps1 -RuntimeDir .\bin\Revit2025\x64\Release
+powershell -ExecutionPolicy Bypass -File .\scripts\build-inno-installer-revit2026.ps1 -RuntimeDir .\bin\Revit2026\x64\Release
+powershell -ExecutionPolicy Bypass -File .\scripts\build-inno-installer-revit2027.ps1 -RuntimeDir .\bin\Revit2027\x64\Release
 ```
 
-This uses the latest folder under:
-- `.\release\CamboBIM_Deploy_Package_*`
-and merges add-in runtime files from:
-- `.\bin\Debug\` (contains `CamboBIM.Revit2024.Addin.dll`)
+Build every installer that has a runtime DLL available:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-inno-installer-all-revit.ps1 -SkipMissingRuntime
+```
+
+The installer builder:
+- Uses the latest folder under `.\release\CamboBIM_Deploy_Package_*`, or creates a minimal base package if none exists.
+- Merges the selected `.\bin\Revit<year>\x64\Release` runtime folder into the installer source.
+- Copies `addins\CamboBIM.Revit<year>.Addin.addin.template`.
+- Copies `scripts\deploy-revit<year>-addin.exe` and `scripts\deploy-revit<year>-addin.ps1`.
+- Rejects tiny runtime DLLs by default because those are usually design-time stubs.
 
 Output:
-- `.\release\inno\CamboBIM_RVT2024_EXTENSION_v1.00.exe`
-- `.\release\inno\CamboBIM_RVT2025_EXTENSION_v1.00.exe`
-- `.\release\inno\CamboBIM_RVT2026_EXTENSION_v1.00.exe`
+- `.\release\inno\MHNK_RVT2023_EXTENSION_v1.00.exe`
+- `.\release\inno\MHNK_RVT2024_EXTENSION_v1.00.exe`
+- `.\release\inno\MHNK_RVT2025_EXTENSION_v1.00.exe`
+- `.\release\inno\MHNK_RVT2026_EXTENSION_v1.00.exe`
+- `.\release\inno\MHNK_RVT2027_EXTENSION_v1.00.exe`
 
 ## 6) Reload during development (recommended)
 Revit application add-ins do not hot-reload while Revit is running.  

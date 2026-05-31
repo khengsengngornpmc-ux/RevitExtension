@@ -16,11 +16,41 @@ This source tree is prepared as one shared codebase with per-Revit host projects
 
 Open `CamboBIM.AllRevitVersions.sln` in Visual Studio when you want to manage all five host projects together.
 
+The shared source, WPF page, content, and resource registry lives in `CamboBIM.SharedProjectItems.targets`; each Revit-year project imports it so all host builds stay aligned.
+
+The shared Revit execution boundary lives in `Infrastructure\RevitExecution`. New modeless UI workflows should create feature request objects and raise them through `RevitExecutionBoundary`, then use `RevitTransactionRunner` for document mutations.
+
+Use `scripts\add-shared-project-item.ps1` when adding shared feature files, for example:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\add-shared-project-item.ps1 -ItemType Compile -Include Features\PTDrawing\NewService.cs
+```
+
 Before pushing to a Revit test PC, run the version support verifier:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\verify-revit-version-support.ps1 -DesignTimeBuild
 ```
+
+## Deploy EXE and Inno Setup
+
+Build the one-click deploy executables for every supported Revit version:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-deploy-exe-all-revit.ps1
+```
+
+After building a real `Release|x64` add-in DLL on a Revit API machine, create one Inno setup EXE per year:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-inno-installer-revit2023.ps1 -RuntimeDir .\bin\Revit2023\x64\Release
+powershell -ExecutionPolicy Bypass -File .\scripts\build-inno-installer-revit2024.ps1 -RuntimeDir .\bin\Revit2024\x64\Release
+powershell -ExecutionPolicy Bypass -File .\scripts\build-inno-installer-revit2025.ps1 -RuntimeDir .\bin\Revit2025\x64\Release
+powershell -ExecutionPolicy Bypass -File .\scripts\build-inno-installer-revit2026.ps1 -RuntimeDir .\bin\Revit2026\x64\Release
+powershell -ExecutionPolicy Bypass -File .\scripts\build-inno-installer-revit2027.ps1 -RuntimeDir .\bin\Revit2027\x64\Release
+```
+
+Output goes to `release\inno\MHNK_RVT<year>_EXTENSION_v1.00.exe`. Use `scripts\build-inno-installer-all-revit.ps1 -SkipMissingRuntime` on a build PC when you want to create every installer that has an available runtime folder.
 
 ## Verified Local Build
 
