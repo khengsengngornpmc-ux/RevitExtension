@@ -12,7 +12,7 @@ namespace CamboBIM.Revit2024.Addin
             ref string message,
             ElementSet elements)
         {
-            TaskDialog.Show("CamboBIM", "Hello! Revit 2024 Add-in is working ✅");
+            TaskDialog.Show("CamboBIM", "Hello! " + CamboBimRuntime.AddInName + " is working.");
             return Result.Succeeded;
         }
     }

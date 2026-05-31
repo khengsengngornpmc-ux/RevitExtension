@@ -4,15 +4,37 @@ RevitExtension is the MHNK/CamboBIM Revit add-in source tree for CAD-to-model, Q
 
 The whole-extension restructure target is documented in `docs/PROJECT_ARCHITECTURE_RESTRUCTURE_PLAN.md`.
 
-## Verified Local Build
+## Revit Version Support
 
-The locally verified target on this workstation is Revit 2025:
+This source tree is prepared as one shared codebase with per-Revit host projects:
+
+- `CamboBIM.Revit2023.Addin.csproj` targets `net48`.
+- `CamboBIM.Revit2024.Addin.csproj` targets `net48`.
+- `CamboBIM.Revit2025.Addin.csproj` targets `net8.0-windows10.0.19041.0`.
+- `CamboBIM.Revit2026.Addin.csproj` targets `net8.0-windows10.0.19041.0`.
+- `CamboBIM.Revit2027.Addin.csproj` targets the prepared `net10.0-windows10.0.19041.0` line and must be validated against the installed Autodesk Revit 2027 SDK/API when available on the test PC.
+
+Open `CamboBIM.AllRevitVersions.sln` in Visual Studio when you want to manage all five host projects together.
+
+Before pushing to a Revit test PC, run the version support verifier:
 
 ```powershell
-dotnet build .\CamboBIM.Revit2025.Addin.csproj -c Debug -p:Platform=x64 -p:DisableRevitDeploy=true -v minimal
+powershell -ExecutionPolicy Bypass -File .\scripts\verify-revit-version-support.ps1 -DesignTimeBuild
 ```
 
-Revit API assemblies are resolved from the installed Revit path. Revit 2024 source is present, but this machine has only been verified for the Revit 2025 API.
+## Verified Local Build
+
+Build the project that matches the Revit version installed on the machine:
+
+```powershell
+dotnet build .\CamboBIM.Revit2023.Addin.csproj -c Debug -p:Platform=x64 -p:DisableRevitDeploy=true -v minimal
+dotnet build .\CamboBIM.Revit2024.Addin.csproj -c Debug -p:Platform=x64 -p:DisableRevitDeploy=true -v minimal
+dotnet build .\CamboBIM.Revit2025.Addin.csproj -c Debug -p:Platform=x64 -p:DisableRevitDeploy=true -v minimal
+dotnet build .\CamboBIM.Revit2026.Addin.csproj -c Debug -p:Platform=x64 -p:DisableRevitDeploy=true -v minimal
+dotnet build .\CamboBIM.Revit2027.Addin.csproj -c Debug -p:Platform=x64 -p:DisableRevitDeploy=true -v minimal
+```
+
+Revit API assemblies are resolved from the installed Revit path. If Revit is installed outside `C:\Program Files\Autodesk`, pass `-p:RevitInstallDir="D:\Apps\Autodesk\Revit 2026\"` with the matching year.
 
 ## Repository Scope
 

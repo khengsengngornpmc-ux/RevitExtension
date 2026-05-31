@@ -2381,6 +2381,105 @@ namespace CamboBIM.Revit2024.Addin
             }
         }
 
+        private void ExportBoqReportRowsToExcel(List<BoqReportRow> rows, string filePath)
+        {
+            if (rows == null || rows.Count == 0)
+            {
+                throw new InvalidOperationException("No BOQ report rows to export.");
+            }
+
+            object appObj = null;
+            object workbooksObj = null;
+            object workbookObj = null;
+            object worksheetObj = null;
+            object rangeObj = null;
+            object topLeftObj = null;
+            object bottomRightObj = null;
+            object headerRangeObj = null;
+
+            try
+            {
+                Type excelType = Type.GetTypeFromProgID("Excel.Application") ?? throw new InvalidOperationException("Microsoft Excel is not available.");
+                appObj = Activator.CreateInstance(excelType);
+                dynamic app = appObj;
+                app.DisplayAlerts = false;
+                app.Visible = false;
+
+                workbooksObj = app.Workbooks;
+                dynamic workbooks = workbooksObj;
+                workbookObj = workbooks.Add();
+                dynamic workbook = workbookObj;
+
+                worksheetObj = workbook.Worksheets[1];
+                dynamic worksheet = worksheetObj;
+                worksheet.Name = "BOQ Report";
+
+                try
+                {
+                    worksheet.Columns[3].NumberFormat = "@";
+                }
+                catch
+                {
+                    // Export should still continue if Excel refuses formatting.
+                }
+
+                List<BoqReportColumnSpec> columns = (_boqReportColumns != null && _boqReportColumns.Count > 0)
+                    ? _boqReportColumns
+                    : GetBoqReportColumnSpecs(_boqReportMode);
+                int rowCount = rows.Count + 1;
+                int colCount = Math.Max(1, columns.Count);
+                var matrix = new object[rowCount, colCount];
+
+                for (int c = 0; c < columns.Count; c++)
+                {
+                    matrix[0, c] = columns[c].Header ?? "";
+                }
+
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    BoqReportRow row = rows[i];
+                    for (int c = 0; c < columns.Count; c++)
+                    {
+                        matrix[i + 1, c] = GetBoqReportExportValue(row, columns[c].BindingPath);
+                    }
+                }
+
+                topLeftObj = worksheet.Cells[1, 1];
+                bottomRightObj = worksheet.Cells[rowCount, colCount];
+                rangeObj = worksheet.Range[topLeftObj, bottomRightObj];
+                dynamic range = rangeObj;
+                range.Value2 = matrix;
+
+                headerRangeObj = worksheet.Range[worksheet.Cells[1, 1], worksheet.Cells[1, colCount]];
+                dynamic headerRange = headerRangeObj;
+                headerRange.Font.Bold = true;
+
+                try
+                {
+                    worksheet.Columns.AutoFit();
+                }
+                catch
+                {
+                    // ignore formatting issues
+                }
+
+                workbook.SaveAs(filePath, 51);
+                workbook.Close(true);
+                app.Quit();
+            }
+            finally
+            {
+                SafeReleaseCom(headerRangeObj);
+                SafeReleaseCom(bottomRightObj);
+                SafeReleaseCom(topLeftObj);
+                SafeReleaseCom(rangeObj);
+                SafeReleaseCom(worksheetObj);
+                SafeReleaseCom(workbookObj);
+                SafeReleaseCom(workbooksObj);
+                SafeReleaseCom(appObj);
+            }
+        }
+
         private void ExportPrepareBoqRowsToExcel(List<PrepareBoqRow> rows, string filePath)
         {
             if (rows == null || rows.Count == 0)
@@ -2415,7 +2514,7 @@ namespace CamboBIM.Revit2024.Addin
                 worksheet.Name = "PrepareBOQ";
 
                 int rowCount = rows.Count + 1;
-                const int colCount = 11;
+                const int colCount = 15;
                 var matrix = new object[rowCount, colCount];
 
                 matrix[0, 0] = HeaderFromMap(_prepareBoqHeaderMap, "Use", "Use");
@@ -2425,10 +2524,14 @@ namespace CamboBIM.Revit2024.Addin
                 matrix[0, 4] = HeaderFromMap(_prepareBoqHeaderMap, "Unit", "Unit");
                 matrix[0, 5] = HeaderFromMap(_prepareBoqHeaderMap, "StructureElement", "Structure Element");
                 matrix[0, 6] = HeaderFromMap(_prepareBoqHeaderMap, "BuildingLevel", "BuildingLevel");
-                matrix[0, 7] = HeaderFromMap(_prepareBoqHeaderMap, "Type", "Type");
-                matrix[0, 8] = HeaderFromMap(_prepareBoqHeaderMap, "Qty", "Qty");
-                matrix[0, 9] = HeaderFromMap(_prepareBoqHeaderMap, "Volume", "Volume (m3)");
-                matrix[0, 10] = HeaderFromMap(_prepareBoqHeaderMap, "Formwork", "Formwork (m2)");
+                matrix[0, 7] = HeaderFromMap(_prepareBoqHeaderMap, "Room", "Room");
+                matrix[0, 8] = HeaderFromMap(_prepareBoqHeaderMap, "Type", "Type");
+                matrix[0, 9] = HeaderFromMap(_prepareBoqHeaderMap, "Qty", "Qty");
+                matrix[0, 10] = HeaderFromMap(_prepareBoqHeaderMap, "Volume", "Volume (m3)");
+                matrix[0, 11] = HeaderFromMap(_prepareBoqHeaderMap, "Formwork", "Formwork (m2)");
+                matrix[0, 12] = HeaderFromMap(_prepareBoqHeaderMap, "QsRuleCode", "Rule Code");
+                matrix[0, 13] = HeaderFromMap(_prepareBoqHeaderMap, "QsFormula", "Formula");
+                matrix[0, 14] = HeaderFromMap(_prepareBoqHeaderMap, "QsBreakdown", "Breakdown");
 
                 for (int i = 0; i < rows.Count; i++)
                 {
@@ -2440,10 +2543,14 @@ namespace CamboBIM.Revit2024.Addin
                     matrix[i + 1, 4] = row.Unit ?? "";
                     matrix[i + 1, 5] = row.StructureElement ?? "";
                     matrix[i + 1, 6] = row.BuildingLevel ?? "";
-                    matrix[i + 1, 7] = row.TypeName ?? "";
-                    matrix[i + 1, 8] = row.Quantity;
-                    matrix[i + 1, 9] = Math.Round(row.TotalVolumeM3, 3);
-                    matrix[i + 1, 10] = Math.Round(row.TotalFormworkAreaM2, 3);
+                    matrix[i + 1, 7] = row.Room ?? "";
+                    matrix[i + 1, 8] = row.TypeName ?? "";
+                    matrix[i + 1, 9] = row.Quantity;
+                    matrix[i + 1, 10] = Math.Round(row.TotalVolumeM3, 3);
+                    matrix[i + 1, 11] = Math.Round(row.TotalFormworkAreaM2, 3);
+                    matrix[i + 1, 12] = row.QsRuleCode ?? "";
+                    matrix[i + 1, 13] = row.QsFormula ?? "";
+                    matrix[i + 1, 14] = row.QsBreakdown ?? "";
                 }
 
                 topLeftObj = worksheet.Cells[1, 1];
@@ -2515,7 +2622,7 @@ namespace CamboBIM.Revit2024.Addin
 
             try
             {
-                appObj = Marshal.GetActiveObject("Excel.Application");
+                appObj = ComActiveObject.GetActiveObject("Excel.Application");
                 if (appObj == null) return false;
 
                 dynamic app = appObj;
@@ -2611,7 +2718,7 @@ namespace CamboBIM.Revit2024.Addin
 
             try
             {
-                appObj = Marshal.GetActiveObject("Excel.Application");
+                appObj = ComActiveObject.GetActiveObject("Excel.Application");
                 if (appObj == null) return false;
                 dynamic app = appObj;
 
@@ -2641,6 +2748,31 @@ namespace CamboBIM.Revit2024.Addin
                 topLeft = ws.Cells[row0, col0];
                 bottomRight = ws.Cells[row0 + rows - 1, col0 + cols - 1];
                 range = ws.Range[topLeft, bottomRight];
+                for (int c = 0; c < cols; c++)
+                {
+                    string header = matrix[0, c] as string ?? "";
+                    if (!string.Equals(header, "BuildingLevel", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(header, "Building Level", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        object columnTop = ws.Cells[row0, col0 + c];
+                        object columnBottom = ws.Cells[row0 + rows - 1, col0 + c];
+                        object columnRange = ws.Range[columnTop, columnBottom];
+                        ((dynamic)columnRange).NumberFormat = "@";
+                        SafeReleaseCom(columnRange);
+                        SafeReleaseCom(columnBottom);
+                        SafeReleaseCom(columnTop);
+                    }
+                    catch
+                    {
+                        // Auto-sync should continue even if Excel refuses formatting.
+                    }
+                }
+
                 ((dynamic)range).Value2 = matrix;
 
                 _boqExcelLink.LastWriteRows = rows;
@@ -2768,6 +2900,77 @@ namespace CamboBIM.Revit2024.Addin
             return 99;
         }
 
+        private QsScope GetQsScope()
+        {
+            if (QsScopeSelectionRadio?.IsChecked == true)
+            {
+                return QsScope.CurrentSelection;
+            }
+            if (QsScopeAllRadio?.IsChecked == true)
+            {
+                return QsScope.EntireModel;
+            }
+
+            return QsScope.CurrentView;
+        }
+
+        private void UpdateQsOverviewKpis()
+        {
+            if (QsScopeBadgeText != null)
+            {
+                string scopeText = GetQsScope() == QsScope.CurrentSelection
+                    ? "Current Selection"
+                    : GetQsScope() == QsScope.EntireModel
+                        ? "Entire Model"
+                        : "Current View";
+                QsScopeBadgeText.Text = scopeText;
+            }
+
+            if (QsCategoryCountText != null)
+            {
+                var categories = new[]
+                {
+                    QsStructuralFramingCheck,
+                    QsStructuralColumnCheck,
+                    QsStructuralWallCheck,
+                    QsStructuralFloorCheck,
+                    QsStructuralStairCheck,
+                    QsFoundationCheck,
+                    QsCreateFormworkShapeCheck
+                };
+                int selectedCount = categories.Count(cb => cb?.IsChecked == true);
+                QsCategoryCountText.Text = selectedCount.ToString(CultureInfo.InvariantCulture) + " selected";
+            }
+
+            if (QsActiveRulesCountText != null)
+            {
+                System.Windows.Controls.CheckBox qsSoilExcavationIncludeCheck = GetQsSoilExcavationIncludeCheck();
+                System.Windows.Controls.CheckBox qsSoilBackfilledIncludeCheck = GetQsSoilBackfilledIncludeCheck();
+                System.Windows.Controls.CheckBox qsSoilBackfilledSubtractStructureCheck = GetQsSoilBackfilledSubtractStructureCheck();
+
+                var rules = new[]
+                {
+                    QsFoundationTopCheck,
+                    QsColumnSubtractBeamCheck,
+                    QsColumnSubtractBeamGECheck,
+                    QsWallOpeningBottomCheck,
+                    QsBeamBottomCheck,
+                    QsFloorBottomCheck,
+                    QsFloorSubtractBeamCheck,
+                    QsFloorSubtractFoundationCheck,
+                    QsFloorSubtractOthersCheck,
+                    QsStairTopCheck,
+                    QsStairSubtractBeamCheck,
+                    QsStairSubtractOthersCheck,
+                    qsSoilExcavationIncludeCheck,
+                    qsSoilBackfilledIncludeCheck,
+                    qsSoilBackfilledSubtractStructureCheck
+                };
+                int enabledRules = rules.Count(cb => cb?.IsChecked == true);
+                QsActiveRulesCountText.Text = enabledRules.ToString(CultureInfo.InvariantCulture) + " enabled";
+            }
+        }
+
         private void UpdateBoqOverviewKpis(int levelCount, string modeText)
         {
             if (BoqKpiRowsText != null)
@@ -2793,6 +2996,57 @@ namespace CamboBIM.Revit2024.Addin
                     : System.Windows.Visibility.Visible;
             }
         }
+
+        private void InitializeQsDefaults()
+        {
+            // Do not hardcode machine-specific path. Leave empty so runtime resolver can find/create a local file.
+            _handler.Request.QsSharedParameterFilePath = "";
+            _handler.Request.QsSharedParameterGroupName = "CBIM-QS";
+
+            if (QsSummaryText != null)
+            {
+                QsSummaryText.Text = "Ready to calculate formwork quantities.";
+            }
+            if (BoqSummaryText != null)
+            {
+                BoqSummaryText.Text = "Click Refresh to load BOQ table.";
+            }
+            if (BoqElementFilterCombo != null)
+            {
+                BoqElementFilterCombo.ItemsSource = new List<string> { "All" };
+                BoqElementFilterCombo.SelectedIndex = 0;
+            }
+            if (BoqBuildingLevelFilterCombo != null)
+            {
+                BoqBuildingLevelFilterCombo.ItemsSource = new List<string> { "All" };
+                BoqBuildingLevelFilterCombo.SelectedIndex = 0;
+            }
+            PopulateBoqReportFilterOptions();
+            if (BoqPivotModeCombo != null)
+            {
+                BoqPivotModeCombo.ItemsSource = new List<string>
+                {
+                    "Detail (Type)",
+                    "Pivot by Floor",
+                    "Pivot by Element",
+                    "Pivot by Floor + Element",
+                    "Pivot by Floor + Room + Element"
+                };
+                BoqPivotModeCombo.SelectedIndex = 0;
+            }
+            if (BoqAutoSyncCsvCheck != null)
+            {
+                BoqAutoSyncCsvCheck.IsChecked = true;
+            }
+            InitializeQsMeasurementSettings();
+            InitializeQsMeasurementRules();
+            RegisterQsUiOptionHandlers();
+            UpdateQsOverviewKpis();
+            UpdateBoqOverviewKpis(levelCount: 0, modeText: "Detail (Type)");
+            RefreshBoqReportCategoryTree();
+            ApplyBoqReport();
+            UpdatePrepareBoqSummary();
+        }
         private readonly ObservableCollection<BoqTableRow> _boqRows = new ObservableCollection<BoqTableRow>();
         private readonly ObservableCollection<PrepareBoqRow> _prepareBoqRows = new ObservableCollection<PrepareBoqRow>();
         private Dictionary<string, string> _prepareBoqHeaderMap = CreateDefaultPrepareBoqHeaderMap();
@@ -2815,7 +3069,8 @@ namespace CamboBIM.Revit2024.Addin
             DetailType,
             ByFloor,
             ByElement,
-            ByFloorAndElement
+            ByFloorAndElement,
+            ByFloorRoomElement
         }
 
         private sealed class BoqExcelLinkTarget
@@ -2845,10 +3100,14 @@ namespace CamboBIM.Revit2024.Addin
             public string Unit { get; set; } = "EA";
             public string StructureElement { get; set; } = "";
             public string BuildingLevel { get; set; } = "";
+            public string Room { get; set; } = "";
             public string TypeName { get; set; } = "";
             public int Quantity { get; set; }
             public double TotalVolumeM3 { get; set; }
             public double TotalFormworkAreaM2 { get; set; }
+            public string QsRuleCode { get; set; } = "";
+            public string QsFormula { get; set; } = "";
+            public string QsBreakdown { get; set; } = "";
             public string LinkedBoqKey { get; set; } = "";
         }
 

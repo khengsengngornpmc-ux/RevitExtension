@@ -1,28 +1,30 @@
 @echo off
 setlocal
+set "SCRIPT_DIR=%~dp0"
+for %%i in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fi"
 
 set /p COMMIT_MSG=Enter commit message: 
 if "%COMMIT_MSG%"=="" set "COMMIT_MSG=Update project files"
 
 echo.
 echo Staging all local changes...
-git add .
+git -C "%REPO_ROOT%" add .
 if errorlevel 1 goto :error
 
 echo.
 echo Files staged for commit:
-git status --short
+git -C "%REPO_ROOT%" status --short
 if errorlevel 1 goto :error
 
 echo.
 echo Creating commit...
-git commit -m "%COMMIT_MSG%"
+git -C "%REPO_ROOT%" commit -m "%COMMIT_MSG%"
 if errorlevel 1 goto :error
 
-for /f "delims=" %%b in ('git branch --show-current') do set "BRANCH=%%b"
+for /f "delims=" %%b in ('git -C "%REPO_ROOT%" branch --show-current') do set "BRANCH=%%b"
 if "%BRANCH%"=="" set "BRANCH=main"
 
-git push -u origin %BRANCH%
+git -C "%REPO_ROOT%" push -u origin %BRANCH%
 if errorlevel 1 goto :error
 
 echo.

@@ -1,43 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
-    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
-    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
-    <RootNamespace>CamboBIM.Revit2024.Addin</RootNamespace>
-    <AssemblyName>CamboBIM.Revit2025.Addin</AssemblyName>
+    <TargetFramework>net48</TargetFramework>
+    <RootNamespace>CamboBIM.Revit2023.Addin</RootNamespace>
+    <AssemblyName>CamboBIM.Revit2023.Addin</AssemblyName>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
-    <Nullable>disable</Nullable>
     <Platforms>AnyCPU;x64</Platforms>
-    <PlatformTarget>x64</PlatformTarget>
-    <Prefer32Bit>false</Prefer32Bit>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <EnableDefaultPageItems>false</EnableDefaultPageItems>
-    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-    <RevitInstallDir Condition="'$(RevitInstallDir)' == '' and Exists('$(ProgramW6432)\Autodesk\Revit 2025\RevitAPI.dll')">$(ProgramW6432)\Autodesk\Revit 2025\</RevitInstallDir>
-    <RevitInstallDir Condition="'$(RevitInstallDir)' == '' and Exists('C:\Program Files\Autodesk\Revit 2025\RevitAPI.dll')">C:\Program Files\Autodesk\Revit 2025\</RevitInstallDir>
-    <RevitInstallDir Condition="'$(RevitInstallDir)' == ''">C:\Program Files\Autodesk\Revit 2025\</RevitInstallDir>
+    <RevitInstallDir Condition="'$(RevitInstallDir)' == '' and Exists('$(ProgramW6432)\Autodesk\Revit 2023\RevitAPI.dll')">$(ProgramW6432)\Autodesk\Revit 2023\</RevitInstallDir>
+    <RevitInstallDir Condition="'$(RevitInstallDir)' == '' and Exists('C:\Program Files\Autodesk\Revit 2023\RevitAPI.dll')">C:\Program Files\Autodesk\Revit 2023\</RevitInstallDir>
+    <RevitInstallDir Condition="'$(RevitInstallDir)' == ''">C:\Program Files\Autodesk\Revit 2023\</RevitInstallDir>
     <RevitApiAvailable Condition="Exists('$(RevitInstallDir)RevitAPI.dll')">true</RevitApiAvailable>
     <RevitApiAvailable Condition="'$(RevitApiAvailable)' == ''">false</RevitApiAvailable>
-    <StartAction>Program</StartAction>
-    <StartProgram>$(RevitInstallDir)Revit.exe</StartProgram>
-    <StartWorkingDirectory>$(RevitInstallDir)</StartWorkingDirectory>
   </PropertyGroup>
 
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' Or '$(Configuration)|$(Platform)' == 'Debug|Any CPU' ">
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
-    <OutputPath>bin\Revit2025\Debug\</OutputPath>
+    <OutputPath>bin\Revit2023\Debug\</OutputPath>
     <PlatformTarget>x64</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
-    <DefineConstants>DEBUG;TRACE;REVIT2025;REVIT2025_OR_GREATER</DefineConstants>
+    <DefineConstants>DEBUG;TRACE;REVIT2023</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
@@ -45,30 +36,32 @@
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' Or '$(Configuration)|$(Platform)' == 'Release|Any CPU' ">
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
-    <OutputPath>bin\Revit2025\Release\</OutputPath>
+    <OutputPath>bin\Revit2023\Release\</OutputPath>
     <PlatformTarget>x64</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
-    <DefineConstants>TRACE;REVIT2025;REVIT2025_OR_GREATER</DefineConstants>
+    <DefineConstants>TRACE;REVIT2023</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>0</WarningLevel>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
     <DebugSymbols>true</DebugSymbols>
-    <OutputPath>bin\Revit2025\x64\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE;REVIT2025;REVIT2025_OR_GREATER</DefineConstants>
+    <OutputPath>bin\Revit2023\x64\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE;REVIT2023</DefineConstants>
     <DebugType>full</DebugType>
     <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>latest</LangVersion>
     <ErrorReport>prompt</ErrorReport>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
-    <OutputPath>bin\Revit2025\x64\Release\</OutputPath>
-    <DefineConstants>TRACE;REVIT2025;REVIT2025_OR_GREATER</DefineConstants>
+    <OutputPath>bin\Revit2023\x64\Release\</OutputPath>
+    <DefineConstants>TRACE;REVIT2023</DefineConstants>
     <Optimize>true</Optimize>
     <WarningLevel>0</WarningLevel>
     <DebugType>pdbonly</DebugType>
     <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>latest</LangVersion>
     <ErrorReport>prompt</ErrorReport>
   </PropertyGroup>
 
@@ -79,19 +72,33 @@
     </Reference>
     <Reference Include="RevitAPIUI">
       <HintPath>$(RevitInstallDir)RevitAPIUI.dll</HintPath>
-      <Private>False</Private>
     </Reference>
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(RevitApiAvailable)' == 'true'">
-    <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
-    <PackageReference Include="OxyPlot.Wpf" Version="2.2.0" />
-    <PackageReference Include="System.Data.OleDb" Version="8.0.0" />
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(RevitApiAvailable)' != 'true' and '$(DesignTimeBuild)' == 'true'">
-    <Compile Include="Properties\Revit2025MissingApiDesignTimeStub.cs" />
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="System.Xaml" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Web" />
+    <Reference Include="System.Web.Extensions" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="System.Data.DataSetExtensions" />
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.Security" />
+    <Reference Include="System.Xml" />
+    <Reference Include="OxyPlot">
+      <HintPath>lib\OxyPlot\OxyPlot.dll</HintPath>
+    </Reference>
+    <Reference Include="OxyPlot.Wpf">
+      <HintPath>lib\OxyPlot\OxyPlot.Wpf.dll</HintPath>
+    </Reference>
+    <Reference Include="OxyPlot.Wpf.Shared">
+      <HintPath>lib\OxyPlot\OxyPlot.Wpf.Shared.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup Condition="'$(RevitApiAvailable)' == 'true'">
@@ -207,6 +214,10 @@
     <Compile Include="Shared\Revit\SharedParameterPathResolver.cs" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(RevitApiAvailable)' != 'true' and '$(DesignTimeBuild)' == 'true'">
+    <Compile Include="Properties\Revit2023MissingApiDesignTimeStub.cs" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(RevitApiAvailable)' == 'true'">
     <Page Include="Host\Shell\CamboBIMWindow.xaml">
       <SubType>Designer</SubType>
@@ -235,7 +246,7 @@
     </Content>
   </ItemGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(RevitApiAvailable)' == 'true'">
     <Resource Include="images\CamboBIM Logo.jpg" />
     <Resource Include="images\CamboBIM_16.png" />
     <Resource Include="images\CamboBIM_32.png" />
@@ -275,20 +286,33 @@
 
   <Target Name="DeployRevitAddinManifest" AfterTargets="Build" Condition="'$(DisableRevitDeploy)' != 'true'">
     <PropertyGroup>
-      <_RevitDeployScriptPath>$(ProjectDir)scripts\deploy-revit2025-addin.ps1</_RevitDeployScriptPath>
+      <_RevitDeployExePath>$(ProjectDir)scripts\deploy-revit2023-addin.exe</_RevitDeployExePath>
+      <_RevitDeployScriptPath>$(ProjectDir)scripts\deploy-revit2023-addin.ps1</_RevitDeployScriptPath>
     </PropertyGroup>
 
-    <Exec Condition="Exists('$(_RevitDeployScriptPath)')"
-          Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_RevitDeployScriptPath)&quot; -Configuration &quot;$(Configuration)&quot; -Platform &quot;$(Platform)&quot; -AssemblyPath &quot;$(TargetPath)&quot;"
+    <Exec Condition="Exists('$(_RevitDeployExePath)')"
+          Command="&quot;$(_RevitDeployExePath)&quot; --no-ui --configuration &quot;$(Configuration)&quot; --platform &quot;$(Platform)&quot; --revit-year 2023 --assembly &quot;$(TargetPath)&quot;"
+          IgnoreExitCode="true">
+      <Output TaskParameter="ExitCode" PropertyName="_RevitDeployExeExitCode" />
+    </Exec>
+
+    <Exec Condition="(!Exists('$(_RevitDeployExePath)') Or '$(_RevitDeployExeExitCode)' != '0') And Exists('$(_RevitDeployScriptPath)')"
+          Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_RevitDeployScriptPath)&quot; -Configuration &quot;$(Configuration)&quot; -Platform &quot;$(Platform)&quot; -AssemblyPath &quot;$(TargetPath)&quot; -RevitYear 2023"
           IgnoreExitCode="true">
       <Output TaskParameter="ExitCode" PropertyName="_RevitDeployScriptExitCode" />
     </Exec>
 
-    <Warning Condition="'$(_RevitDeployScriptExitCode)' != '' and '$(_RevitDeployScriptExitCode)' != '0'"
-             Text="Revit 2025 add-in deploy step failed (exit code $(_RevitDeployScriptExitCode)). Build output is still available at $(TargetPath)." />
+    <PropertyGroup>
+      <_RevitDeployFinalExitCode Condition="'$(_RevitDeployExeExitCode)' == '0'">0</_RevitDeployFinalExitCode>
+      <_RevitDeployFinalExitCode Condition="'$(_RevitDeployFinalExitCode)' == '' and '$(_RevitDeployScriptExitCode)' != ''">$(_RevitDeployScriptExitCode)</_RevitDeployFinalExitCode>
+      <_RevitDeployFinalExitCode Condition="'$(_RevitDeployFinalExitCode)' == ''">0</_RevitDeployFinalExitCode>
+    </PropertyGroup>
+
+    <Warning Condition="'$(_RevitDeployFinalExitCode)' != '0'"
+             Text="Revit add-in deploy step failed (exit code $(_RevitDeployFinalExitCode)). Build output is still available at $(TargetPath)." />
   </Target>
 
-  <Target Name="FailWhenRevit2025ApiMissing" BeforeTargets="CoreCompile" Condition="'$(RevitApiAvailable)' != 'true' and '$(DesignTimeBuild)' != 'true'">
-    <Error Text="Revit 2025 API was not found at $(RevitInstallDir). Install Revit 2025 or pass -p:RevitInstallDir=&quot;...\Autodesk\Revit 2025\&quot; to build this project." />
+  <Target Name="FailWhenRevit2023ApiMissing" BeforeTargets="CoreCompile" Condition="'$(RevitApiAvailable)' != 'true' and '$(DesignTimeBuild)' != 'true'">
+    <Error Text="Revit 2023 API was not found at $(RevitInstallDir). Install Revit 2023 or pass -p:RevitInstallDir=&quot;...\Autodesk\Revit 2023\&quot; to build this project." />
   </Target>
 </Project>

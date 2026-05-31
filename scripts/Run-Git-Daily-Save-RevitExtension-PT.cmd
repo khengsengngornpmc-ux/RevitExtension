@@ -1,6 +1,7 @@
 @echo off
 setlocal
 set "SCRIPT_DIR=%~dp0"
+for %%i in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fi"
 
 set "PS_EXE="
 where pwsh.exe >nul 2>nul && set "PS_EXE=pwsh.exe"
@@ -13,12 +14,12 @@ if not defined PS_EXE (
 
 set "WORK_BRANCH=%REVITEXTENSION_WORK_BRANCH%"
 if "%WORK_BRANCH%"=="" (
-  for /f "delims=" %%i in ('git -C "%SCRIPT_DIR%." branch --show-current 2^>nul') do set "WORK_BRANCH=%%i"
+  for /f "delims=" %%i in ('git -C "%REPO_ROOT%" branch --show-current 2^>nul') do set "WORK_BRANCH=%%i"
 )
 if "%WORK_BRANCH%"=="" set "WORK_BRANCH=main"
 
-echo Saving RevitExtension work on branch "%WORK_BRANCH%"...
-"%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%scripts\git-daily-save.ps1" -Branch "%WORK_BRANCH%" %*
+echo Saving RevitExtension PT work on branch "%WORK_BRANCH%"...
+"%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%git-daily-save-pt.ps1" -Branch "%WORK_BRANCH%" %*
 set "exit_code=%ERRORLEVEL%"
 if not "%exit_code%"=="0" pause
 exit /b %exit_code%

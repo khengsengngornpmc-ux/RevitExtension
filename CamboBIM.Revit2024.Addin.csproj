@@ -9,7 +9,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <Deterministic>true</Deterministic>
-    <LangVersion>7.3</LangVersion>
+    <LangVersion>latest</LangVersion>
     <Platforms>AnyCPU;x64</Platforms>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
@@ -25,10 +25,10 @@
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
-    <OutputPath>bin\Debug\</OutputPath>
+    <OutputPath>bin\Revit2024\Debug\</OutputPath>
     <PlatformTarget>x64</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <DefineConstants>DEBUG;TRACE;REVIT2024</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
@@ -36,32 +36,32 @@
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' Or '$(Configuration)|$(Platform)' == 'Release|Any CPU' ">
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
-    <OutputPath>bin\Release\</OutputPath>
+    <OutputPath>bin\Revit2024\Release\</OutputPath>
     <PlatformTarget>x64</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
-    <DefineConstants>TRACE</DefineConstants>
+    <DefineConstants>TRACE;REVIT2024</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>0</WarningLevel>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
     <DebugSymbols>true</DebugSymbols>
-    <OutputPath>bin\x64\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <OutputPath>bin\Revit2024\x64\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE;REVIT2024</DefineConstants>
     <DebugType>full</DebugType>
     <PlatformTarget>x64</PlatformTarget>
-    <LangVersion>7.3</LangVersion>
+    <LangVersion>latest</LangVersion>
     <ErrorReport>prompt</ErrorReport>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
-    <OutputPath>bin\x64\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
+    <OutputPath>bin\Revit2024\x64\Release\</OutputPath>
+    <DefineConstants>TRACE;REVIT2024</DefineConstants>
     <Optimize>true</Optimize>
     <WarningLevel>0</WarningLevel>
     <DebugType>pdbonly</DebugType>
     <PlatformTarget>x64</PlatformTarget>
-    <LangVersion>7.3</LangVersion>
+    <LangVersion>latest</LangVersion>
     <ErrorReport>prompt</ErrorReport>
   </PropertyGroup>
 
@@ -102,76 +102,82 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(RevitApiAvailable)' == 'true'">
-    <Compile Include="App.cs" />
-    <Compile Include="BoredPileToolExternalEventHandler.cs" />
-    <Compile Include="BoredPileToolWindow.xaml.cs">
+    <Compile Include="Host\App\App.cs" />
+    <Compile Include="Features\BoredPile\BoredPileToolExternalEventHandler.cs" />
+    <Compile Include="Features\BoredPile\BoredPileToolWindow.xaml.cs">
       <DependentUpon>BoredPileToolWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="CadToModelExternalEventHandler.cs" />
-    <Compile Include="CadToModelRequest.cs" />
-    <Compile Include="Cad2ModelToolRegistry.cs" />
+    <Compile Include="Features\CadToModel\CadToModelExternalEventHandler.cs" />
+    <Compile Include="Features\CadToModel\CadToModelRequest.cs" />
+    <Compile Include="Features\CadToModel\Cad2ModelToolRegistry.cs" />
+    <Compile Include="Features\PTDrawing\PtDrawingAdmParserModels.cs" />
+    <Compile Include="Features\PTDrawing\PtDrawingAdmReaderService.cs" />
     <Compile Include="Features\PTDrawing\PtDrawingAuditPreviewPackage.cs" />
     <Compile Include="Features\PTDrawing\PtDrawingAuditService.cs" />
+    <Compile Include="Features\PTDrawing\PtDrawingDraftingAnnotationService.cs" />
     <Compile Include="Features\PTDrawing\PtDrawingImportModels.cs" />
+    <Compile Include="Features\PTDrawing\PtDrawingTableParserModels.cs" />
+    <Compile Include="Features\PTDrawing\PtDrawingTableRowParserService.cs" />
     <Compile Include="Features\PTDrawing\PtDrawingSnapshotRecord.cs" />
     <Compile Include="Features\PTDrawing\PtDrawingSnapshotStore.cs" />
     <Compile Include="Features\PTDrawing\PtDrawingSettingsStore.cs" />
     <Compile Include="Features\PTDrawing\PtDrawingSourceService.cs" />
+    <Compile Include="Features\PTDrawing\PtDrawingTableReaderService.cs" />
     <Compile Include="Features\PTDrawing\PtDrawingTraceService.cs" />
-    <Compile Include="TasReferenceSettings.cs" />
-    <Compile Include="TasIdentificationOptions.cs" />
-    <Compile Include="CamboBimJson.cs" />
-    <Compile Include="PtJsonModels.cs" />
-    <Compile Include="PtJsonMapper.cs" />
-    <Compile Include="CamboBimRuntime.cs" />
-    <Compile Include="ComActiveObject.cs" />
-    <Compile Include="IdentifySvgIconFactory.cs" />
-    <Compile Include="CBIM_BOREY.cs" />
-    <Compile Include="CBIM_QS.cs" />
-    <Compile Include="CBIM_BOQ.cs" />
-    <Compile Include="CBIM_SITE_PROGRESS.cs" />
-    <Compile Include="Cad2ModelPicker.cs" />
-    <Compile Include="CadLayoutToColumnCommand.cs" />
-    <Compile Include="IdentifyElementScheduleWindow.cs" />
-    <Compile Include="QsMeasurementSettings.cs" />
-    <Compile Include="QsMeasurementRules.cs" />
-    <Compile Include="CamboBIMWindow.xaml.cs">
+    <Compile Include="Features\QSBoq\TasReferenceSettings.cs" />
+    <Compile Include="Features\QSBoq\TasIdentificationOptions.cs" />
+    <Compile Include="Shared\Serialization\CamboBimJson.cs" />
+    <Compile Include="Features\PTDrawing\PtJsonModels.cs" />
+    <Compile Include="Features\PTDrawing\PtJsonMapper.cs" />
+    <Compile Include="Shared\Runtime\CamboBimRuntime.cs" />
+    <Compile Include="Shared\Interop\ComActiveObject.cs" />
+    <Compile Include="Shared\UI\IdentifySvgIconFactory.cs" />
+    <Compile Include="Features\Borey\CBIM_BOREY.cs" />
+    <Compile Include="Features\QSBoq\CBIM_QS.cs" />
+    <Compile Include="Features\QSBoq\CBIM_BOQ.cs" />
+    <Compile Include="Features\SiteProgress\CBIM_SITE_PROGRESS.cs" />
+    <Compile Include="Features\CadToModel\Cad2ModelPicker.cs" />
+    <Compile Include="Features\CadToModel\CadLayoutToColumnCommand.cs" />
+    <Compile Include="Shared\UI\IdentifyElementScheduleWindow.cs" />
+    <Compile Include="Features\QSBoq\QsMeasurementSettings.cs" />
+    <Compile Include="Features\QSBoq\QsMeasurementRules.cs" />
+    <Compile Include="Host\Shell\CamboBIMWindow.xaml.cs">
       <DependentUpon>CamboBIMWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="CamboBIMWindow.AdaptTendonImport.cs">
+    <Compile Include="Features\PTDrawing\CamboBIMWindow.AdaptTendonImport.cs">
       <DependentUpon>CamboBIMWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="CamboBIMWindow.MeasurementSettings.cs">
+    <Compile Include="Features\QSBoq\CamboBIMWindow.MeasurementSettings.cs">
       <DependentUpon>CamboBIMWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="CamboBIMWindow.MeasurementRules.cs">
+    <Compile Include="Features\QSBoq\CamboBIMWindow.MeasurementRules.cs">
       <DependentUpon>CamboBIMWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="CamboBIMWindow.MeasurementRulesSync.cs">
+    <Compile Include="Features\QSBoq\CamboBIMWindow.MeasurementRulesSync.cs">
       <DependentUpon>CamboBIMWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="CamboBIMWindow.TasExport.cs">
+    <Compile Include="Features\QSBoq\CamboBIMWindow.TasExport.cs">
       <DependentUpon>CamboBIMWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="CamboBIMWindow.BeamNaviate.cs" />
-    <Compile Include="CamboBIMWindowCommand.cs" />
-    <Compile Include="DetectSharedParametersCommand.cs" />
-    <Compile Include="OpenAutoJoinCommand.cs" />
-    <Compile Include="OpenAboutMeCommand.cs" />
-    <Compile Include="OpenBoreyCommand.cs" />
-    <Compile Include="OpenCad2ModelCommand.cs" />
-    <Compile Include="OpenDrawingCommand.cs" />
-    <Compile Include="OpenDrawingPtCommand.cs" />
-    <Compile Include="OpenLinksheetCommand.cs" />
-    <Compile Include="OpenLicenseLoginCommand.cs" />
-    <Compile Include="OpenMhnkArchitectureToolCommand.cs" />
-    <Compile Include="OpenDiagnosticsCommand.cs" />
-    <Compile Include="OpenPmDashboardCommand.cs" />
-    <Compile Include="OpenQsToolCommand.cs" />
-    <Compile Include="OpenSCurveCommand.cs" />
-    <Compile Include="OpenSiteProgressCommand.cs" />
-    <Compile Include="OpenUserGuideCommand.cs" />
-    <Compile Include="HelloCommand.cs" />
+    <Compile Include="Features\Rebar\CamboBIMWindow.BeamNaviate.cs" />
+    <Compile Include="Host\Shell\CamboBIMWindowCommand.cs" />
+    <Compile Include="Host\Commands\DetectSharedParametersCommand.cs" />
+    <Compile Include="Host\Commands\OpenAutoJoinCommand.cs" />
+    <Compile Include="Host\Commands\OpenAboutMeCommand.cs" />
+    <Compile Include="Features\Borey\OpenBoreyCommand.cs" />
+    <Compile Include="Features\CadToModel\OpenCad2ModelCommand.cs" />
+    <Compile Include="Features\PTDrawing\OpenDrawingCommand.cs" />
+    <Compile Include="Features\PTDrawing\OpenDrawingPtCommand.cs" />
+    <Compile Include="Features\Linksheet\OpenLinksheetCommand.cs" />
+    <Compile Include="Host\Commands\OpenLicenseLoginCommand.cs" />
+    <Compile Include="Features\ArchitectureTools\OpenMhnkArchitectureToolCommand.cs" />
+    <Compile Include="Host\Commands\OpenDiagnosticsCommand.cs" />
+    <Compile Include="Features\PmDashboard\OpenPmDashboardCommand.cs" />
+    <Compile Include="Features\QSBoq\OpenQsToolCommand.cs" />
+    <Compile Include="Features\PmDashboard\OpenSCurveCommand.cs" />
+    <Compile Include="Features\SiteProgress\OpenSiteProgressCommand.cs" />
+    <Compile Include="Host\Commands\OpenUserGuideCommand.cs" />
+    <Compile Include="Host\Commands\HelloCommand.cs" />
     <Compile Include="Infrastructure\Architecture\ExtensionFeature.cs" />
     <Compile Include="Infrastructure\Architecture\ExtensionFeatureCatalog.cs" />
     <Compile Include="Infrastructure\Diagnostics\FeatureTraceWriter.cs" />
@@ -180,28 +186,32 @@
     <Compile Include="Infrastructure\Execution\OperationResult.cs" />
     <Compile Include="Infrastructure\Paths\ExtensionEnvironment.cs" />
     <Compile Include="Infrastructure\Persistence\JsonFileStore.cs" />
-    <Compile Include="MhnkArcGuideline.cs" />
-    <Compile Include="MhnkArcToolMetadata.cs" />
-    <Compile Include="MhnkArcPreviewModels.cs" />
-    <Compile Include="MhnkArcPreviewService.cs" />
-    <Compile Include="MhnkArcToolSettingsWindow.cs" />
-    <Compile Include="MhnkArcSmartMappingWindow.cs" />
-    <Compile Include="MhnkArcQaDashboardWindow.cs" />
-    <Compile Include="MhnkCadToModelManagerWindow.cs" />
-    <Compile Include="MhnkCadToModelPreviewWindow.cs" />
-    <Compile Include="MhnkRoomCreationOptionsWindow.cs" />
-    <Compile Include="MhnkArcToolsWindow.cs" />
-    <Compile Include="MhnkUiTheme.cs" />
-    <Compile Include="LinksheetModels.cs" />
-    <Compile Include="Licensing\OnlineLicenseCache.cs" />
-    <Compile Include="Licensing\OnlineLicenseClient.cs" />
-    <Compile Include="Licensing\OnlineLicenseConfig.cs" />
-    <Compile Include="Licensing\OnlineLicenseChangePasswordForm.cs" />
-    <Compile Include="Licensing\OnlineLicenseLoginForm.cs" />
-    <Compile Include="Licensing\OnlineLicenseService.cs" />
-    <Compile Include="ProgressDialogWindow.cs" />
+    <Compile Include="Features\ArchitectureTools\MhnkArcGuideline.cs" />
+    <Compile Include="Features\ArchitectureTools\MhnkArcToolMetadata.cs" />
+    <Compile Include="Features\ArchitectureTools\MhnkArcPreviewModels.cs" />
+    <Compile Include="Features\ArchitectureTools\MhnkArcPreviewService.cs" />
+    <Compile Include="Features\ArchitectureTools\MhnkArcCommandRuntime.cs" />
+    <Compile Include="Features\ArchitectureTools\MhnkArcToolSettingsWindow.cs" />
+    <Compile Include="Features\ArchitectureTools\MhnkArcSmartMappingWindow.cs" />
+    <Compile Include="Features\ArchitectureTools\MhnkArcQaDashboardWindow.cs" />
+    <Compile Include="Features\ArchitectureTools\MhnkArcValidationWindow.cs" />
+    <Compile Include="Features\ArchitectureTools\MhnkSolidsInteractionWindow.cs" />
+    <Compile Include="Features\CadToModel\MhnkCadToModelManagerWindow.cs" />
+    <Compile Include="Features\CadToModel\MhnkCadToModelPreviewWindow.cs" />
+    <Compile Include="Features\ArchitectureTools\MhnkRoomCreationOptionsWindow.cs" />
+    <Compile Include="Features\ArchitectureTools\MhnkArcToolsWindow.cs" />
+    <Compile Include="Features\ArchitectureTools\MhnkUiTheme.cs" />
+    <Compile Include="Features\Linksheet\LinksheetModels.cs" />
+    <Compile Include="Features\Licensing\OnlineLicenseCache.cs" />
+    <Compile Include="Features\Licensing\OnlineLicenseClient.cs" />
+    <Compile Include="Features\Licensing\OnlineLicenseConfig.cs" />
+    <Compile Include="Features\Licensing\OnlineLicenseChangePasswordForm.cs" />
+    <Compile Include="Features\Licensing\OnlineLicenseLoginForm.cs" />
+    <Compile Include="Features\Licensing\OnlineLicenseService.cs" />
+    <Compile Include="Shared\UI\ProgressDialogWindow.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="SharedParameterPathResolver.cs" />
+    <Compile Include="Shared\Text\ExtensionTextUtility.cs" />
+    <Compile Include="Shared\Revit\SharedParameterPathResolver.cs" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(RevitApiAvailable)' != 'true' and '$(DesignTimeBuild)' == 'true'">
@@ -209,18 +219,18 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(RevitApiAvailable)' == 'true'">
-    <Page Include="CamboBIMWindow.xaml">
+    <Page Include="Host\Shell\CamboBIMWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="BoredPileToolWindow.xaml">
+    <Page Include="Features\BoredPile\BoredPileToolWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
   </ItemGroup>
 
   <ItemGroup Condition="'$(RevitApiAvailable)' == 'true'">
-    <Content Include="Cad2ModelPicker.xaml.xml" />
+    <Content Include="Features\CadToModel\Cad2ModelPicker.xaml.xml" />
     <Content Include="Config\cad2model-tool-registry.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
@@ -303,6 +313,6 @@
   </Target>
 
   <Target Name="FailWhenRevit2024ApiMissing" BeforeTargets="CoreCompile" Condition="'$(RevitApiAvailable)' != 'true' and '$(DesignTimeBuild)' != 'true'">
-    <Error Text="Revit 2024 API was not found at $(RevitInstallDir). This PC is configured for Revit 2025 development; use CamboBIM.Revit2025.Addin.sln or install Revit 2024 to build this project." />
+    <Error Text="Revit 2024 API was not found at $(RevitInstallDir). Install Revit 2024 or pass -p:RevitInstallDir=&quot;...\Autodesk\Revit 2024\&quot; to build this project." />
   </Target>
 </Project>

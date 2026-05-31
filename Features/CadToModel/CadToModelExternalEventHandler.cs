@@ -4,7 +4,7 @@ using System.Linq;
 using System.Reflection;
 using System.Globalization;
 using System.Text.RegularExpressions;
-#if REVIT2025
+#if REVIT2025_OR_GREATER
 using System.IO;
 using System.Threading.Tasks;
 using DrawingBitmap = System.Drawing.Bitmap;
@@ -18940,8 +18940,7 @@ namespace CamboBIM.Revit2024.Addin
 
         private static string NormalizeShopDrawingViewportText(string value, int maxLength)
         {
-            string text = Regex.Replace(value ?? "", @"\s+", " ").Trim();
-            return TruncateShopDrawingCell(text, maxLength);
+            return ExtensionTextUtility.NormalizeShopDrawingViewportText(value, maxLength);
         }
 
         private static void TryTidyShopDrawingViewportLabel(Viewport viewport, ShopDrawingSheetSlot slot)
@@ -19026,14 +19025,7 @@ namespace CamboBIM.Revit2024.Addin
 
         private static string NormalizeShopDrawingIssueText(string value)
         {
-            string text = DefaultText(value, "FOR CONSTRUCTION REVIEW");
-            text = Regex.Replace(text, @"\s+", " ");
-            if (text.Length > 64)
-            {
-                text = text.Substring(0, 64);
-            }
-
-            return string.IsNullOrWhiteSpace(text) ? "FOR CONSTRUCTION REVIEW" : text;
+            return ExtensionTextUtility.NormalizeShopDrawingIssueText(value, "FOR CONSTRUCTION REVIEW", 64);
         }
 
         private static ShopDrawingIssueMetadata BuildShopDrawingIssueMetadata(CadToModelRequest request, string issueText)
@@ -19053,14 +19045,7 @@ namespace CamboBIM.Revit2024.Addin
 
         private static string NormalizeShopDrawingMetadataText(string value, string fallback, int maxLength)
         {
-            string text = DefaultText(value, fallback);
-            text = Regex.Replace(text, @"\s+", " ").Trim();
-            if (maxLength > 0 && text.Length > maxLength)
-            {
-                text = text.Substring(0, maxLength);
-            }
-
-            return string.IsNullOrWhiteSpace(text) ? (fallback ?? "") : text;
+            return ExtensionTextUtility.NormalizeMetadataText(value, fallback, maxLength);
         }
 
         private static void ApplyShopDrawingSheetMetadata(
@@ -19159,14 +19144,7 @@ namespace CamboBIM.Revit2024.Addin
 
         private static string NormalizeShopDrawingSheetPrefix(string value, string fallback)
         {
-            string text = DefaultText(value, fallback).ToUpperInvariant();
-            text = Regex.Replace(text, @"[^A-Z0-9_-]+", "-").Trim('-', '_');
-            if (text.Length > 32)
-            {
-                text = text.Substring(0, 32).Trim('-', '_');
-            }
-
-            return string.IsNullOrWhiteSpace(text) ? fallback : text;
+            return ExtensionTextUtility.NormalizeSheetPrefix(value, fallback, 32);
         }
 
         private static string MakeUniqueSheetNumber(HashSet<string> existingNumbers, string sheetPrefix)
@@ -20077,13 +20055,7 @@ namespace CamboBIM.Revit2024.Addin
 
         private static string TruncateShopDrawingCell(string value, int maxLength)
         {
-            string text = value ?? "";
-            if (maxLength <= 3 || text.Length <= maxLength)
-            {
-                return text;
-            }
-
-            return text.Substring(0, maxLength - 3) + "...";
+            return ExtensionTextUtility.TruncateWithEllipsis(value, maxLength);
         }
 
         private static string BuildFormworkShopDrawingSummary(IList<Element> elements)
@@ -20988,12 +20960,7 @@ namespace CamboBIM.Revit2024.Addin
 
         private static string NormalizeAdaptLayerName(string value)
         {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return "";
-            }
-
-            return Regex.Replace(value.ToLowerInvariant(), @"[^a-z0-9]+", "");
+            return ExtensionTextUtility.NormalizeAdaptLayerName(value);
         }
 
         private static void WriteAdaptCadImportReport(
@@ -22246,18 +22213,7 @@ namespace CamboBIM.Revit2024.Addin
 
         private static string NormalizeAdaptCadChainMark(string value)
         {
-            string text = Regex.Replace(value ?? "", @"\s+", " ").Trim();
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                return "";
-            }
-
-            if (text.Length > 24)
-            {
-                text = text.Substring(0, 24).Trim();
-            }
-
-            return text;
+            return ExtensionTextUtility.NormalizeAdaptCadChainMark(value, 24);
         }
 
         private static double GetAdaptCadDistanceToPolyline(XYZ point, IList<XYZ> path)
@@ -25197,23 +25153,14 @@ namespace CamboBIM.Revit2024.Addin
             double horizontalInfluenceFt,
             IList<XYZ> placedCenters)
         {
-            double safeRowGapFt = Math.Max(MmToFeet(120.0), rowGapFt);
-            double safeMinSeparationFt = Math.Max(MmToFeet(180.0), minimumSeparationFt);
-            double safeHorizontalInfluenceFt = Math.Max(MmToFeet(800.0), horizontalInfluenceFt);
-            for (int step = 0; step < 12; step++)
-            {
-                foreach (double direction in GetAdaptBubbleLayoutDirections(step))
-                {
-                    double candidateY = preferredY + (direction * safeRowGapFt);
-                    XYZ candidate = new XYZ(preferredX, candidateY, 0.0);
-                    if (CanPlaceAdaptBubbleCenter(candidate, placedCenters, safeMinSeparationFt, safeHorizontalInfluenceFt))
-                    {
-                        return candidate;
-                    }
-                }
-            }
-
-            return new XYZ(preferredX, preferredY + (12 * safeRowGapFt), 0.0);
+            return PtDrawingDraftingAnnotationService.BuildAlignedBubbleCenter(
+                anchor,
+                preferredX,
+                preferredY,
+                rowGapFt,
+                minimumSeparationFt,
+                horizontalInfluenceFt,
+                placedCenters);
         }
 
         private static XYZ BuildAdaptAlignedTextCenter(
@@ -25225,7 +25172,7 @@ namespace CamboBIM.Revit2024.Addin
             double horizontalInfluenceFt,
             IList<XYZ> placedCenters)
         {
-            return BuildAdaptAlignedBubbleCenter(
+            return PtDrawingDraftingAnnotationService.BuildAlignedTextCenter(
                 anchor,
                 preferredX,
                 preferredY,
@@ -25246,7 +25193,7 @@ namespace CamboBIM.Revit2024.Addin
             double minY,
             double maxY)
         {
-            return BuildAdaptAlignedTextCenter(
+            return PtDrawingDraftingAnnotationService.BuildAlignedTextCenter(
                 anchor,
                 preferredX,
                 preferredY,
@@ -25255,8 +25202,7 @@ namespace CamboBIM.Revit2024.Addin
                 horizontalInfluenceFt,
                 placedCenters,
                 minY,
-                maxY,
-                0.0);
+                maxY);
         }
 
         private static XYZ BuildAdaptAlignedTextCenter(
@@ -25271,78 +25217,17 @@ namespace CamboBIM.Revit2024.Addin
             double maxY,
             double minimumAnchorClearanceFt)
         {
-            double safeMinY = Math.Min(minY, maxY);
-            double safeMaxY = Math.Max(minY, maxY);
-            double safeRowGapFt = Math.Max(MmToFeet(120.0), rowGapFt);
-            double safeMinSeparationFt = Math.Max(MmToFeet(180.0), minimumSeparationFt);
-            double safeHorizontalInfluenceFt = Math.Max(MmToFeet(800.0), horizontalInfluenceFt);
-            double safeAnchorClearanceFt = Math.Max(0.0, minimumAnchorClearanceFt);
-            if (safeMaxY - safeMinY < MmToFeet(40.0))
-            {
-                double fallbackY = Math.Max(safeMinY, Math.Min(safeMaxY, preferredY));
-                return new XYZ(preferredX, fallbackY, 0.0);
-            }
-
-            for (int step = 0; step < 12; step++)
-            {
-                foreach (double direction in GetAdaptBubbleLayoutDirections(step))
-                {
-                    double candidateY = preferredY + (direction * safeRowGapFt);
-                    candidateY = Math.Max(safeMinY, Math.Min(safeMaxY, candidateY));
-                    XYZ candidate = new XYZ(preferredX, candidateY, 0.0);
-                    if (anchor != null && Math.Abs(candidateY - anchor.Y) < safeAnchorClearanceFt)
-                    {
-                        continue;
-                    }
-
-                    if (CanPlaceAdaptBubbleCenter(candidate, placedCenters, safeMinSeparationFt, safeHorizontalInfluenceFt))
-                    {
-                        return candidate;
-                    }
-                }
-            }
-
-            double clampedY = Math.Max(safeMinY, Math.Min(safeMaxY, preferredY));
-            return new XYZ(preferredX, clampedY, 0.0);
-        }
-
-        private static IEnumerable<double> GetAdaptBubbleLayoutDirections(int step)
-        {
-            if (step <= 0)
-            {
-                yield return 0.0;
-                yield break;
-            }
-
-            yield return step;
-            yield return -step;
-        }
-
-        private static bool CanPlaceAdaptBubbleCenter(
-            XYZ candidate,
-            IList<XYZ> placedCenters,
-            double minimumSeparationFt,
-            double horizontalInfluenceFt)
-        {
-            foreach (XYZ placed in placedCenters ?? Enumerable.Empty<XYZ>())
-            {
-                if (placed == null)
-                {
-                    continue;
-                }
-
-                if (Math.Abs(candidate.X - placed.X) > horizontalInfluenceFt)
-                {
-                    continue;
-                }
-
-                if (Math.Abs(candidate.Y - placed.Y) < minimumSeparationFt)
-                {
-                    return false;
-                }
-            }
-
-            return true;
+            return PtDrawingDraftingAnnotationService.BuildAlignedTextCenter(
+                anchor,
+                preferredX,
+                preferredY,
+                rowGapFt,
+                minimumSeparationFt,
+                horizontalInfluenceFt,
+                placedCenters,
+                minY,
+                maxY,
+                minimumAnchorClearanceFt);
         }
 
         private static void DrawAdaptBubble(
@@ -25618,105 +25503,25 @@ namespace CamboBIM.Revit2024.Addin
 
         private static double EstimateAdaptDraftingTextWidthFt(string text)
         {
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                return 0.0;
-            }
-
-            int length = Math.Max(1, text.Trim().Length);
-            return MmToFeet(42.0 * length);
+            return PtDrawingDraftingAnnotationService.EstimateTextWidthFt(text);
         }
 
         private static IEnumerable<string> BuildAdaptDraftingWrappedLines(IEnumerable<string> lines, double maxWidthFt)
         {
-            foreach (string line in lines ?? Enumerable.Empty<string>())
+            foreach (string line in PtDrawingDraftingAnnotationService.BuildWrappedLines(lines, maxWidthFt))
             {
-                foreach (string wrapped in WrapAdaptDraftingLine(line, maxWidthFt))
-                {
-                    if (!string.IsNullOrWhiteSpace(wrapped))
-                    {
-                        yield return wrapped;
-                    }
-                }
-            }
-        }
-
-        private static IEnumerable<string> WrapAdaptDraftingLine(string text, double maxWidthFt)
-        {
-            string normalized = NormalizeAdaptDraftingLine(text);
-            if (string.IsNullOrWhiteSpace(normalized))
-            {
-                yield break;
-            }
-
-            if (maxWidthFt <= 1.0e-6 || EstimateAdaptDraftingTextWidthFt(normalized) <= maxWidthFt)
-            {
-                yield return normalized;
-                yield break;
-            }
-
-            List<string> words = Regex.Split(normalized, @"\s+")
-                .Where(part => !string.IsNullOrWhiteSpace(part))
-                .ToList();
-            if (words.Count == 0)
-            {
-                yield break;
-            }
-
-            string currentLine = "";
-            foreach (string word in words)
-            {
-                string candidate = string.IsNullOrWhiteSpace(currentLine)
-                    ? word
-                    : currentLine + " " + word;
-                if (!string.IsNullOrWhiteSpace(currentLine) &&
-                    EstimateAdaptDraftingTextWidthFt(candidate) > maxWidthFt)
-                {
-                    yield return currentLine;
-                    currentLine = TrimAdaptDraftingTextToWidth(word, maxWidthFt);
-                }
-                else
-                {
-                    currentLine = TrimAdaptDraftingTextToWidth(candidate, maxWidthFt);
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(currentLine))
-            {
-                yield return currentLine;
+                yield return line;
             }
         }
 
         private static string NormalizeAdaptDraftingLine(string text)
         {
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                return "";
-            }
-
-            return Regex.Replace(text.Trim(), @"\s+", " ");
+            return PtDrawingDraftingAnnotationService.NormalizeDraftingLine(text);
         }
 
         private static string TrimAdaptDraftingTextToWidth(string text, double maxWidthFt)
         {
-            string normalized = NormalizeAdaptDraftingLine(text);
-            if (string.IsNullOrWhiteSpace(normalized) || maxWidthFt <= 1.0e-6)
-            {
-                return normalized;
-            }
-
-            if (EstimateAdaptDraftingTextWidthFt(normalized) <= maxWidthFt)
-            {
-                return normalized;
-            }
-
-            string candidate = normalized;
-            while (candidate.Length > 4 && EstimateAdaptDraftingTextWidthFt(candidate + "...") > maxWidthFt)
-            {
-                candidate = candidate.Substring(0, candidate.Length - 1).TrimEnd();
-            }
-
-            return candidate.Length < normalized.Length ? candidate + "..." : candidate;
+            return PtDrawingDraftingAnnotationService.TrimTextToWidth(text, maxWidthFt);
         }
 
         private static int DrawAdaptProfileBand(
@@ -25962,30 +25767,12 @@ namespace CamboBIM.Revit2024.Addin
             IEnumerable<AdaptTendonProfileSegmentPayload> segments,
             double diameterFt)
         {
-            string tendonMark = !string.IsNullOrWhiteSpace(metadataSegment?.TendonName)
-                ? metadataSegment.TendonName.Trim()
-                : (!string.IsNullOrWhiteSpace(metadataSegment?.ProfileName) ? metadataSegment.ProfileName.Trim() : "ADAPT Tendon");
-            int? strands = TryExtractAdaptStrandCount(segments);
-            string tendonType = InferAdaptTendonType(segments);
-            string duct = (diameterFt * 304.8).ToString("0.#", CultureInfo.InvariantCulture) + " mm";
-            string summary = "Mark: " + tendonMark;
-            if (strands.HasValue)
-            {
-                summary += " | Strands: " + strands.Value.ToString(CultureInfo.InvariantCulture);
-            }
-
-            yield return summary;
-
-            string secondary = "";
-            if (!string.IsNullOrWhiteSpace(tendonType))
-            {
-                secondary = "Type: " + tendonType;
-            }
-
-            secondary = string.IsNullOrWhiteSpace(secondary)
-                ? "Duct: " + duct
-                : secondary + " | Duct: " + duct;
-            yield return secondary;
+            return PtDrawingDraftingAnnotationService.BuildProfileMetadataSummaryLines(
+                metadataSegment,
+                segments,
+                diameterFt,
+                TryExtractAdaptStrandCount,
+                InferAdaptTendonType);
         }
 
         private static string BuildAdaptPolylineSignature(IList<XYZ> path, bool includeZ)
@@ -26023,8 +25810,7 @@ namespace CamboBIM.Revit2024.Addin
 
         private static string NormalizeAdaptShopMarkPrefix(string prefix)
         {
-            string text = Regex.Replace((prefix ?? "").Trim(), @"[^A-Za-z0-9_\-]+", "");
-            return string.IsNullOrWhiteSpace(text) ? "PT" : text;
+            return ExtensionTextUtility.NormalizeAdaptShopMarkPrefix(prefix, "PT");
         }
 
         private static int GetAdaptShopMarkStartNumber(int value)
@@ -26768,18 +26554,7 @@ namespace CamboBIM.Revit2024.Addin
 
         private static string BuildAdaptMetadataLabel(AdaptTendonProfileSegmentPayload segment)
         {
-            string profile = (segment.ProfileName ?? "").Trim();
-            string tendon = (segment.TendonName ?? "").Trim();
-            if (!string.IsNullOrWhiteSpace(profile) &&
-                !string.IsNullOrWhiteSpace(tendon) &&
-                !string.Equals(profile, tendon, StringComparison.OrdinalIgnoreCase))
-            {
-                return profile + " / " + tendon;
-            }
-
-            if (!string.IsNullOrWhiteSpace(tendon)) return tendon;
-            if (!string.IsNullOrWhiteSpace(profile)) return profile;
-            return "";
+            return PtDrawingDraftingAnnotationService.BuildMetadataLabel(segment);
         }
 
         private void GenerateDetailLines(Document doc)
@@ -31028,7 +30803,7 @@ namespace CamboBIM.Revit2024.Addin
             PickedBox box,
             out string status)
         {
-#if REVIT2025
+#if REVIT2025_OR_GREATER
             status = "";
             CamboBIMWindow window = _window;
             if (window == null)
@@ -31127,7 +30902,7 @@ namespace CamboBIM.Revit2024.Addin
                 return false;
             }
 #else
-            status = "Screen OCR is available in the Revit 2025 build only.";
+            status = "Screen OCR is available in the Revit 2025+ builds only.";
             return false;
 #endif
         }
@@ -31137,7 +30912,7 @@ namespace CamboBIM.Revit2024.Addin
             PickedBox box,
             out string status)
         {
-#if REVIT2025
+#if REVIT2025_OR_GREATER
             status = "";
             var empty = new List<List<string>>();
             try
@@ -31165,12 +30940,12 @@ namespace CamboBIM.Revit2024.Addin
                 return empty;
             }
 #else
-            status = "Screen OCR is available in the Revit 2025 build only.";
+            status = "Screen OCR is available in the Revit 2025+ builds only.";
             return new List<List<string>>();
 #endif
         }
 
-#if REVIT2025
+#if REVIT2025_OR_GREATER
         private static bool TryGetPickedBoxScreenRectangle(
             UIDocument uidoc,
             PickedBox box,
@@ -31625,26 +31400,7 @@ namespace CamboBIM.Revit2024.Addin
 
         private static string NormalizeOcrText(string text)
         {
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                return "";
-            }
-
-            string normalized = text
-                .Trim()
-                .Replace("（", "(")
-                .Replace("）", ")")
-                .Replace("×", "x")
-                .Replace("X", "x")
-                .Replace("*", "x");
-
-            normalized = Regex.Replace(normalized, @"(?<=\d)[Oo](?=\d)", "0");
-            normalized = Regex.Replace(normalized, @"(?<=\d)[Oo](?=\s*(?:x|\)|m|$))", "0");
-            normalized = Regex.Replace(normalized, @"(?<=(?:x|\())\s*[Oo](?=\d)", "0");
-            normalized = Regex.Replace(normalized, @"(?<=\d)[Cc](?=\d|x|\)|m|$)", "0");
-            normalized = Regex.Replace(normalized, @"(?<=(?:x|\())\s*[Cc](?=\d)", "0");
-            normalized = Regex.Replace(normalized, @"(?<=[A-Za-z])(?:[Il\|])(?=\b)", "1");
-            return normalized;
+            return ExtensionTextUtility.NormalizeOcrText(text);
         }
 #endif
 
@@ -31793,17 +31549,7 @@ namespace CamboBIM.Revit2024.Addin
 
         private static string CleanScheduleName(string text)
         {
-            if (string.IsNullOrWhiteSpace(text)) return "";
-            string cleaned = text.Trim();
-
-            int paren = cleaned.IndexOf('(');
-            if (paren > 0)
-            {
-                cleaned = cleaned.Substring(0, paren);
-            }
-
-            cleaned = cleaned.Replace(" ", "");
-            return cleaned;
+            return ExtensionTextUtility.CleanScheduleName(text);
         }
 
         private static bool IsHeaderLabel(string text, string keyword)

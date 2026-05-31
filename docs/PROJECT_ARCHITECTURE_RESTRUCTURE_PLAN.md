@@ -4,6 +4,47 @@ This document defines the target structure for the whole `RevitExtension` codeba
 
 The goal is to keep one strong Revit add-in while making it faster to extend, safer to maintain, and easier to test across multiple PCs.
 
+## Current Implementation Snapshot
+
+This plan is now partially implemented.
+
+Feature folders already applied in the active project:
+
+- `Features/PTDrawing`
+- `Features/CadToModel`
+- `Features/ArchitectureTools`
+- `Features/QSBoq`
+- `Features/Rebar`
+- `Features/BoredPile`
+- `Features/PmDashboard`
+- `Features/Linksheet`
+- `Features/Licensing`
+- `Features/SiteProgress`
+- `Features/Borey`
+
+Supporting shared and technical foundation already applied:
+
+- `Host/App`
+- `Host/Commands`
+- `Host/Shell`
+- `Infrastructure/`
+- `Shared/Interop`
+- `Shared/Revit`
+- `Shared/Runtime`
+- `Shared/Serialization`
+- `Shared/Text`
+- `Shared/UI`
+
+Important note:
+
+- `QSBoq` compile-time file ownership has already been updated into `Features/QSBoq`
+- `CadToModel` compile-time file ownership has already been updated into `Features/CadToModel`
+- `ArchitectureTools` compile-time file ownership has already been updated into `Features/ArchitectureTools`
+- `PTDrawing`, `QSBoq`, `Rebar`, `BoredPile`, `PmDashboard`, `Linksheet`, and `Licensing` entry files are now staged under feature folders
+- `SiteProgress` and `Borey` standalone runtime classes have been moved into feature folders
+- the main shell has been moved under `Host/Shell`
+- some large feature partials still duplicate logic inside `Host/Shell/CamboBIMWindow.xaml.cs` and need a second extraction pass before they should be added to the project file
+
 ## What We Have Now
 
 The current codebase already contains strong business value:
@@ -44,6 +85,16 @@ This means:
 - many internal feature modules
 - shared infrastructure with strict rules
 - feature logic moved out of giant window and handler files over time
+
+## Immediate Working Rule
+
+Until the larger `src/` split happens, use this repo rule for all ongoing development:
+
+- host shell files can remain at root
+- feature-owned code should live under `Features/<FeatureName>/`
+- cross-feature helpers should live under `Shared/`
+- technical plumbing should live under `Infrastructure/`
+- avoid adding new business logic directly into `Host/Shell/CamboBIMWindow.xaml.cs` unless it is only temporary shell glue
 
 ## Target Module Layout
 
@@ -96,11 +147,16 @@ Move here over time:
 - DWG and DXF preprocessing
 - reusable import orchestration
 
-Current hot files:
+Current prepared files:
 
-- `CadToModelExternalEventHandler.cs`
-- `CadToModelRequest.cs`
-- `Cad2ModelToolRegistry.cs`
+- `Features/CadToModel/CadToModelExternalEventHandler.cs`
+- `Features/CadToModel/CadToModelRequest.cs`
+- `Features/CadToModel/Cad2ModelToolRegistry.cs`
+- `Features/CadToModel/Cad2ModelPicker.cs`
+- `Features/CadToModel/CadLayoutToColumnCommand.cs`
+- `Features/CadToModel/OpenCad2ModelCommand.cs`
+- `Features/CadToModel/MhnkCadToModelManagerWindow.cs`
+- `Features/CadToModel/MhnkCadToModelPreviewWindow.cs`
 
 ### `Features.PTDrawing`
 
@@ -115,10 +171,10 @@ Move here over time:
 
 Current hot files:
 
-- `CamboBIMWindow.AdaptTendonImport.cs`
+- `Features/PTDrawing/CamboBIMWindow.AdaptTendonImport.cs`
 - PT sections inside `CadToModelExternalEventHandler.cs`
-- `PtJsonModels.cs`
-- `PtJsonMapper.cs`
+- `Features/PTDrawing/PtJsonModels.cs`
+- `Features/PTDrawing/PtJsonMapper.cs`
 
 ### `Features.QSBoq`
 
@@ -131,12 +187,42 @@ Move here over time:
 
 Current hot files:
 
-- `CBIM_QS.cs`
-- `CBIM_BOQ.cs`
-- `QsMeasurementSettings.cs`
-- `QsMeasurementRules.cs`
-- `CamboBIMWindow.MeasurementSettings.cs`
-- `CamboBIMWindow.MeasurementRules.cs`
+- `Features/QSBoq/CBIM_QS.cs`
+- `Features/QSBoq/CBIM_BOQ.cs`
+- `Features/QSBoq/QsMeasurementSettings.cs`
+- `Features/QSBoq/QsMeasurementRules.cs`
+- `Features/QSBoq/CamboBIMWindow.MeasurementSettings.cs`
+- `Features/QSBoq/CamboBIMWindow.MeasurementRules.cs`
+- `Features/QSBoq/CamboBIMWindow.TasExport.cs`
+
+### `Features.Rebar`
+
+Move here over time:
+
+- column rebar generation
+- beam rebar generation
+- rebar preview and settings
+- reinforcement drafting helpers
+
+Current prepared files:
+
+- `Features/Rebar/CamboBIMWindow.BeamNaviate.cs`
+- `Features/Rebar/CamboBIMWindow.RebarColumn.cs`
+
+### `Features.BoredPile`
+
+Move here over time:
+
+- pile CAD import picking
+- layer filtering
+- bored pile generation
+- pile tool UI
+
+Current prepared files:
+
+- `Features/BoredPile/BoredPileToolExternalEventHandler.cs`
+- `Features/BoredPile/BoredPileToolWindow.xaml`
+- `Features/BoredPile/BoredPileToolWindow.xaml.cs`
 
 ### `Features.SiteProgress`
 
@@ -148,7 +234,8 @@ Move here over time:
 
 Current hot files:
 
-- `CBIM_SITE_PROGRESS.cs`
+- `Features/SiteProgress/CBIM_SITE_PROGRESS.cs`
+- `Features/SiteProgress/OpenSiteProgressCommand.cs`
 - `CamboBIMWindow.SiteProgress.cs`
 
 ### `Features.Borey`
@@ -161,7 +248,8 @@ Move here over time:
 
 Current hot files:
 
-- `CBIM_BOREY.cs`
+- `Features/Borey/CBIM_BOREY.cs`
+- `Features/Borey/OpenBoreyCommand.cs`
 - `CamboBIMWindow.Borey.cs`
 
 ### `Features.ArchitectureTools`
@@ -174,12 +262,14 @@ Move here over time:
 - smart mapping
 - tool settings
 
-Current hot files:
+Current prepared files:
 
-- `OpenMhnkArchitectureToolCommand.cs`
-- `MhnkArcCommandRuntime.cs`
-- `MhnkArcPreviewService.cs`
-- `MhnkArcToolsWindow.cs`
+- `Features/ArchitectureTools/OpenMhnkArchitectureToolCommand.cs`
+- `Features/ArchitectureTools/MhnkArcCommandRuntime.cs`
+- `Features/ArchitectureTools/MhnkArcPreviewService.cs`
+- `Features/ArchitectureTools/MhnkArcToolsWindow.cs`
+- `Features/ArchitectureTools/MhnkArcValidationWindow.cs`
+- `Features/ArchitectureTools/MhnkSolidsInteractionWindow.cs`
 
 ### `Features.PmDashboard`
 
@@ -189,9 +279,11 @@ Move here over time:
 - dashboard views
 - dashboard exports
 
-Current hot files:
+Current prepared files:
 
-- `CamboBIMWindow.PmDashboard.cs`
+- `Features/PmDashboard/CamboBIMWindow.PmDashboard.cs`
+- `Features/PmDashboard/OpenPmDashboardCommand.cs`
+- `Features/PmDashboard/OpenSCurveCommand.cs`
 
 ### `Features.Linksheet`
 
@@ -201,9 +293,10 @@ Use as a future review platform for:
 - quantity review tables
 - drawing review status
 
-Current hot files:
+Current prepared files:
 
-- `LinksheetModels.cs`
+- `Features/Linksheet/LinksheetModels.cs`
+- `Features/Linksheet/OpenLinksheetCommand.cs`
 - related window logic in `CamboBIMWindow.xaml.cs`
 
 ### `Features.Licensing`
@@ -214,7 +307,7 @@ Keep isolated:
 - login cache
 - user authentication UI
 
-Current files are already relatively well grouped under `Licensing`.
+Current files are grouped under `Features/Licensing`.
 
 ### `Features.Diagnostics`
 
@@ -236,7 +329,7 @@ The WPF shell should become a thin coordinator, not the business layer.
 
 Target rules:
 
-- `CamboBIMWindow.xaml` stays as the main shell
+- `Host/Shell/CamboBIMWindow.xaml` stays as the main shell
 - each tab or tool cluster gets its own partial file or view class
 - button handlers should only collect input, call a workflow service, and show results
 - heavy parsing, file IO, and drafting logic should never stay in the button click method

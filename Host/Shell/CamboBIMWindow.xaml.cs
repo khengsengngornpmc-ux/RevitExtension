@@ -598,15 +598,9 @@ namespace CamboBIM.Revit2024.Addin
         private readonly ObservableCollection<SlabSectionSpec> _slabSectionSpecs = new ObservableCollection<SlabSectionSpec>();
         private readonly ObservableCollection<Cad2ModelTasAttributeRow> _cad2ModelTasAttributeRows =
             new ObservableCollection<Cad2ModelTasAttributeRow>();
-        private readonly ObservableCollection<BoqTableRow> _boqRows = new ObservableCollection<BoqTableRow>();
         private readonly ObservableCollection<BoqReportRow> _boqReportRows = new ObservableCollection<BoqReportRow>();
         private readonly ObservableCollection<BoqReportCategoryNode> _boqReportCategoryNodes = new ObservableCollection<BoqReportCategoryNode>();
         private List<BoqReportColumnSpec> _boqReportColumns = new List<BoqReportColumnSpec>();
-        private readonly ObservableCollection<PrepareBoqRow> _prepareBoqRows = new ObservableCollection<PrepareBoqRow>();
-        private readonly ObservableCollection<SiteProgressSummaryRow> _siteProgressCombinedRows = new ObservableCollection<SiteProgressSummaryRow>();
-        private readonly ObservableCollection<SiteProgressSummaryRow> _siteProgressByBuildingRows = new ObservableCollection<SiteProgressSummaryRow>();
-        private readonly ObservableCollection<SiteProgressSummaryRow> _siteProgressDashboardStructureRows = new ObservableCollection<SiteProgressSummaryRow>();
-        private readonly ObservableCollection<SiteProgressDashboardChartItem> _siteProgressDashboardChartItems = new ObservableCollection<SiteProgressDashboardChartItem>();
         private readonly ObservableCollection<LinksheetScheduleSelectionItem> _linksheetScheduleItems = new ObservableCollection<LinksheetScheduleSelectionItem>();
         private readonly ObservableCollection<LinksheetParameterSelectionItem> _linksheetParameterItems = new ObservableCollection<LinksheetParameterSelectionItem>();
         private readonly ObservableCollection<AutoJoinCategoryItem> _autoJoinCategoryItems = new ObservableCollection<AutoJoinCategoryItem>();
@@ -622,13 +616,10 @@ namespace CamboBIM.Revit2024.Addin
             new Dictionary<string, LinksheetSchedulePreview>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, LinksheetSchedulePreview> _linksheetOriginalPreviewBySchedule =
             new Dictionary<string, LinksheetSchedulePreview>(StringComparer.OrdinalIgnoreCase);
-        private List<SiteProgressSummaryRow> _siteProgressCombinedSourceRows = new List<SiteProgressSummaryRow>();
-        private List<SiteProgressElementDetailRow> _siteProgressElementRows = new List<SiteProgressElementDetailRow>();
         private DataTable _linksheetActivePreviewTable;
         private string _linksheetActivePreviewScheduleName = "";
         private Dictionary<string, string> _linksheetActiveHeaderToKey = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private bool _linksheetSchedulesLoadedOnce;
-        private const string SiteProgressFilterAll = "All";
         private const string PmUpdateProgressRevitLinkActive = "Active with Revit";
         private const string PmUpdateProgressRevitLinkNotActive = "Not Active with Revit";
         private const string PmStageMappingRulesFileName = "pm_stage_mapping_rules.txt";
@@ -639,23 +630,10 @@ namespace CamboBIM.Revit2024.Addin
         private const string PmAutoMapRulesMatchBuildingLevelKey = "match_building_level";
         private const string PmAutoMapRulesMatchStructureElementKey = "match_structure_element";
         private const string PmAutoMapRulesMatchStructureTypeKey = "match_structure_type";
-        private static readonly List<string> SiteProgressStructureFilterOptions = new List<string>
-        {
-            SiteProgressFilterAll,
-            "Structural Foundation",
-            "Structural Column",
-            "Wall",
-            "Structural Framing",
-            "Floor",
-            "Stair"
-        };
-        private Dictionary<string, string> _prepareBoqHeaderMap = CreateDefaultPrepareBoqHeaderMap();
         private List<BoqTableRow> _boqAllRows = new List<BoqTableRow>();
         private string _boqReportMode = "SummaryByElement";
         private string _boqReportCategoryFilter = "";
         private bool _boqReportFilterUiUpdating;
-        private string _boqLastCsvExportPath = "";
-        private const string BoqInternalDragRowsFormat = "CamboBIM.BoqRows";
         private const string BoqReportAllFloorsLabel = "All Floors";
         private const string BoqReportAllQuantitiesLabel = "All Quantities";
         private static readonly List<string> BoqReportQuantityScopeOptions = new List<string>
@@ -669,25 +647,12 @@ namespace CamboBIM.Revit2024.Addin
             "Openings",
             "Soil / Excavation"
         };
-        private const string SiteProgressInternalDragRowsFormat = "CamboBIM.SiteProgressRows";
-        private System.Windows.Point _boqDragStartPoint;
-        private System.Windows.Point _siteProgressDragStartPoint;
-        private BoqExcelLinkTarget _boqExcelLink;
-        private int _boqLastSelectionStartRowIndex = -1;
-        private int _boqLastSelectionRowCount = 0;
-        private List<int> _boqLastSelectionColumnDisplayIndices = new List<int>();
-        private bool _boqLastSelectionIsCellBased;
-        private HashSet<(int RowIndex, int ColDisplayIndex)> _boqLastSelectedCells = new HashSet<(int, int)>();
-        private bool _boqExcelSyncInProgress;
         private ProgressDialogWindow _progressDialog;
         private bool _progressCancelRequested;
-        private bool _siteProgressSelectionSyncInProgress;
         private bool _pmUpdateProgressSelectionSyncInProgress;
-        private bool _siteProgressDashboardUiUpdateInProgress;
         private bool _linksheetUiUpdateInProgress;
         private PmStageMappingRules _pmStageMappingRules = CreateDefaultPmStageMappingRules();
         private PmAutoMapMatchOptions _pmAutoMapMatchOptions = CreateDefaultPmAutoMapMatchOptions();
-        private DateTime _siteProgressLastRefreshLocal = DateTime.MinValue;
         private const double DashboardChartZoomMin = 0.5;
         private const double DashboardChartZoomMax = 3.0;
         private const double DashboardChartZoomStep = 0.1;
@@ -715,18 +680,6 @@ namespace CamboBIM.Revit2024.Addin
         private string _cachedBoreyDbPath = "";
         private string _cachedBoreyPhysicalTable = "";
         private string _cachedBoreySchemaPath = "";
-        private string _powerBiLastExportFolder = "";
-        private bool _powerBiRefreshPipelinePending;
-        private bool _powerBiOpenProjectAfterRefreshPending;
-        private bool _powerBiSummaryAllElementsPending;
-        private string _powerBiLastSummaryMessage = "";
-        private DateTime _powerBiLastActionLocal = DateTime.MinValue;
-        private const string DefaultPowerBiReportUrl = "https://app.powerbi.com/";
-        private const string DefaultPowerBiProjectFileName = "Power BI Project.pbip";
-        private const string DefaultPowerBiProjectRelativePath = @"Power BI\Power BI Project.pbip";
-        private const string DefaultPowerBiProjectAbsolutePath =
-            @"D:\CamboBIM\20260214_CamboBIM.Revit2024.Addin\CamboBIM.Revit2024.Addin\database\Power BI\Power BI Project.pbip";
-        private const string DefaultSiteProgressExcelFileName = "Site_Progress.xlsx";
         private const string ColumnSectionExcelFileName = "Column Section.xlsx";
         private const string DefaultMsProjectSyncFolderName = "MS Project Sync";
         private const string DefaultMsProjectDashboardAbsolutePath =
@@ -745,13 +698,11 @@ namespace CamboBIM.Revit2024.Addin
         private const string MsProjectTaskTextFieldBuildingLevel = "Text30";
         private const string MsProjectTaskTextFieldRevitElementIds = "Text27";
         private const string MsProjectTaskTextFieldUnit = "Text26";
-        private const string MsProjectTaskNumberFieldBoq = "Number20";
         private const string MsProjectTaskTextAliasStructureType = "Structure Type";
         private const string MsProjectTaskTextAliasStructureElement = "Structure Element";
         private const string MsProjectTaskTextAliasBuildingLevel = "BuildingLevel";
         private const string MsProjectTaskTextAliasRevitElementIds = "Revit Element IDs";
         private const string MsProjectTaskTextAliasUnit = "Unit";
-        private const string MsProjectTaskNumberAliasBoq = "Boq";
         private const int MsProjectFieldTypeTask = 0;
         private readonly List<PmDashboardCurvePoint> _pmDashboardCurvePoints = new List<PmDashboardCurvePoint>();
         private bool _pmDashboardUiUpdateInProgress;
@@ -1127,16 +1078,6 @@ namespace CamboBIM.Revit2024.Addin
         }
 
         private static readonly byte[] Utf8BomBytes = new byte[] { 0xEF, 0xBB, 0xBF };
-        private static readonly string[] RemovedPowerBiLegacyCsvFiles =
-        {
-            "fact_borey_planing_info.csv",
-            "fact_borey_project_info.csv",
-            "fact_borey_sale_info.csv",
-            "fact_borey_site_info.csv",
-            "dim_house.csv",
-            "dim_date.csv",
-            "export_manifest.csv"
-        };
         private const string BoreyFilterAll = "All";
         private const string BoreyMultiFilterValueSeparator = "\u001F";
         private const string BoreyFallbackPhysicalTable = "Floors";
@@ -1271,65 +1212,12 @@ namespace CamboBIM.Revit2024.Addin
                 { "CONTRACT/LOA/BLC No.", new[] { "CONTRACT/LOA/BLC No.", "CONTRACT/LOA/BLC NO.", "CONTRACT/LOA/BLC No" } }
             };
 
-        private enum BoqPivotMode
-        {
-            DetailType,
-            ByFloor,
-            ByElement,
-            ByFloorAndElement,
-            ByFloorRoomElement
-        }
-
-        private enum SiteProgressPivotMode
-        {
-            ByFloorAndElement,
-            ByBuildingLevel,
-            ByStructureElement
-        }
-
-        private enum SiteProgressPivotMetric
-        {
-            Volume,
-            Formwork,
-            Reinforcement
-        }
-
-        private enum SiteProgressDashboardValueMode
-        {
-            AbsoluteBoq,
-            ProgressPercent
-        }
-
         private enum PmTaskProgressStage
         {
             Overall,
             Reinforcement,
             Formwork,
             Volume
-        }
-
-        private sealed class SiteProgressDashboardChartItem
-        {
-            public string StructureElement { get; set; } = "";
-            public double TotalHeight { get; set; }
-            public double CompletedHeight { get; set; }
-            public double RemainingHeight { get; set; }
-            public string TotalLabel { get; set; } = "0";
-            public string CompletedLabel { get; set; } = "0";
-            public string RemainingLabel { get; set; } = "0";
-            public string ProgressLabel { get; set; } = "";
-        }
-
-        private sealed class SiteProgressDashboardPlotPoint
-        {
-            public string Label { get; set; } = "";
-            public double TotalBoq { get; set; }
-            public double CompletedBoq { get; set; }
-            public double RemainingBoq { get; set; }
-            public double RawTotalBoq { get; set; }
-            public double RawCompletedBoq { get; set; }
-            public double RawRemainingBoq { get; set; }
-            public double ProgressPercent { get; set; }
         }
 
         private sealed class PmDashboardCurvePoint
@@ -1412,24 +1300,6 @@ namespace CamboBIM.Revit2024.Addin
             public int InProgressTasks { get; set; }
             public int NotStartedTasks { get; set; }
             public List<PmDashboardTaskSnapshot> Tasks { get; } = new List<PmDashboardTaskSnapshot>();
-        }
-
-        private sealed class BoqExcelLinkTarget
-        {
-            public string WorkbookFullName { get; set; } = "";
-            public string WorksheetName { get; set; } = "";
-            public int StartRow { get; set; }
-            public int StartColumn { get; set; }
-            public int LastWriteRows { get; set; }
-            public int LastWriteCols { get; set; }
-            public int SelectionStartRowIndex { get; set; }
-            public int SelectionRowCount { get; set; }
-            public List<int> SelectionColumnDisplayIndices { get; set; } = new List<int>();
-
-            public bool IsValid =>
-                StartRow > 0 &&
-                StartColumn > 0 &&
-                !string.IsNullOrWhiteSpace(WorksheetName);
         }
 
         private sealed class BoqReportCategoryNode
@@ -1572,33 +1442,6 @@ namespace CamboBIM.Revit2024.Addin
             public double Value { get; set; }
             public string Status { get; set; } = "";
             public string ReviewAction { get; set; } = "";
-        }
-
-        private sealed class PrepareBoqRow
-        {
-            public bool IsEnabled { get; set; } = true;
-            public string SourceSheet { get; set; } = "";
-            public string ItemCode { get; set; } = "";
-            public string Description { get; set; } = "";
-            public string Unit { get; set; } = "EA";
-            public string StructureElement { get; set; } = "";
-            public string BuildingLevel { get; set; } = "";
-            public string Room { get; set; } = "";
-            public string TypeName { get; set; } = "";
-            public int Quantity { get; set; }
-            public double TotalVolumeM3 { get; set; }
-            public double TotalFormworkAreaM2 { get; set; }
-            public string QsRuleCode { get; set; } = "";
-            public string QsFormula { get; set; } = "";
-            public string QsBreakdown { get; set; } = "";
-            public string LinkedBoqKey { get; set; } = "";
-        }
-
-        private sealed class PrepareBoqImportResult
-        {
-            public List<PrepareBoqRow> Rows { get; } = new List<PrepareBoqRow>();
-            public Dictionary<string, string> HeaderMap { get; } = CreateDefaultPrepareBoqHeaderMap();
-            public int SheetCount { get; set; }
         }
 
         private sealed class LinksheetScheduleSelectionItem : INotifyPropertyChanged
@@ -48055,511 +47898,6 @@ namespace CamboBIM.Revit2024.Addin
             }
         }
 
-        private void ExportBoqReportRowsToExcel(List<BoqReportRow> rows, string filePath)
-        {
-            if (rows == null || rows.Count == 0)
-            {
-                throw new InvalidOperationException("No BOQ report rows to export.");
-            }
-
-            object appObj = null;
-            object workbooksObj = null;
-            object workbookObj = null;
-            object worksheetObj = null;
-            object rangeObj = null;
-            object topLeftObj = null;
-            object bottomRightObj = null;
-            object headerRangeObj = null;
-
-            try
-            {
-                Type excelType = Type.GetTypeFromProgID("Excel.Application") ?? throw new InvalidOperationException("Microsoft Excel is not available.");
-                appObj = Activator.CreateInstance(excelType);
-                dynamic app = appObj;
-                app.DisplayAlerts = false;
-                app.Visible = false;
-
-                workbooksObj = app.Workbooks;
-                dynamic workbooks = workbooksObj;
-                workbookObj = workbooks.Add();
-                dynamic workbook = workbookObj;
-
-                worksheetObj = workbook.Worksheets[1];
-                dynamic worksheet = worksheetObj;
-                worksheet.Name = "BOQ Report";
-
-                try
-                {
-                    worksheet.Columns[3].NumberFormat = "@";
-                }
-                catch
-                {
-                    // Export should still continue if Excel refuses formatting.
-                }
-
-                List<BoqReportColumnSpec> columns = (_boqReportColumns != null && _boqReportColumns.Count > 0)
-                    ? _boqReportColumns
-                    : GetBoqReportColumnSpecs(_boqReportMode);
-                int rowCount = rows.Count + 1;
-                int colCount = Math.Max(1, columns.Count);
-                var matrix = new object[rowCount, colCount];
-
-                for (int c = 0; c < columns.Count; c++)
-                {
-                    matrix[0, c] = columns[c].Header ?? "";
-                }
-
-                for (int i = 0; i < rows.Count; i++)
-                {
-                    BoqReportRow row = rows[i];
-                    for (int c = 0; c < columns.Count; c++)
-                    {
-                        matrix[i + 1, c] = GetBoqReportExportValue(row, columns[c].BindingPath);
-                    }
-                }
-
-                topLeftObj = worksheet.Cells[1, 1];
-                bottomRightObj = worksheet.Cells[rowCount, colCount];
-                rangeObj = worksheet.Range[topLeftObj, bottomRightObj];
-                dynamic range = rangeObj;
-                range.Value2 = matrix;
-
-                headerRangeObj = worksheet.Range[worksheet.Cells[1, 1], worksheet.Cells[1, colCount]];
-                dynamic headerRange = headerRangeObj;
-                headerRange.Font.Bold = true;
-
-                try
-                {
-                    worksheet.Columns.AutoFit();
-                }
-                catch
-                {
-                    // ignore formatting issues
-                }
-
-                workbook.SaveAs(filePath, 51);
-                workbook.Close(true);
-                app.Quit();
-            }
-            finally
-            {
-                SafeReleaseCom(headerRangeObj);
-                SafeReleaseCom(bottomRightObj);
-                SafeReleaseCom(topLeftObj);
-                SafeReleaseCom(rangeObj);
-                SafeReleaseCom(worksheetObj);
-                SafeReleaseCom(workbookObj);
-                SafeReleaseCom(workbooksObj);
-                SafeReleaseCom(appObj);
-            }
-        }
-
-        private void ExportPrepareBoqRowsToExcel(List<PrepareBoqRow> rows, string filePath)
-        {
-            if (rows == null || rows.Count == 0)
-            {
-                throw new InvalidOperationException("No Prepare BOQ rows to export.");
-            }
-
-            object appObj = null;
-            object workbooksObj = null;
-            object workbookObj = null;
-            object worksheetObj = null;
-            object rangeObj = null;
-            object topLeftObj = null;
-            object bottomRightObj = null;
-            object headerRangeObj = null;
-
-            try
-            {
-                Type excelType = Type.GetTypeFromProgID("Excel.Application") ?? throw new InvalidOperationException("Microsoft Excel is not available.");
-                appObj = Activator.CreateInstance(excelType);
-                dynamic app = appObj;
-                app.DisplayAlerts = false;
-                app.Visible = false;
-
-                workbooksObj = app.Workbooks;
-                dynamic workbooks = workbooksObj;
-                workbookObj = workbooks.Add();
-                dynamic workbook = workbookObj;
-
-                worksheetObj = workbook.Worksheets[1];
-                dynamic worksheet = worksheetObj;
-                worksheet.Name = "PrepareBOQ";
-
-                int rowCount = rows.Count + 1;
-                const int colCount = 15;
-                var matrix = new object[rowCount, colCount];
-
-                matrix[0, 0] = HeaderFromMap(_prepareBoqHeaderMap, "Use", "Use");
-                matrix[0, 1] = HeaderFromMap(_prepareBoqHeaderMap, "Sheet", "Sheet");
-                matrix[0, 2] = HeaderFromMap(_prepareBoqHeaderMap, "ItemCode", "Item Code");
-                matrix[0, 3] = HeaderFromMap(_prepareBoqHeaderMap, "Description", "Description");
-                matrix[0, 4] = HeaderFromMap(_prepareBoqHeaderMap, "Unit", "Unit");
-                matrix[0, 5] = HeaderFromMap(_prepareBoqHeaderMap, "StructureElement", "Structure Element");
-                matrix[0, 6] = HeaderFromMap(_prepareBoqHeaderMap, "BuildingLevel", "BuildingLevel");
-                matrix[0, 7] = HeaderFromMap(_prepareBoqHeaderMap, "Room", "Room");
-                matrix[0, 8] = HeaderFromMap(_prepareBoqHeaderMap, "Type", "Type");
-                matrix[0, 9] = HeaderFromMap(_prepareBoqHeaderMap, "Qty", "Qty");
-                matrix[0, 10] = HeaderFromMap(_prepareBoqHeaderMap, "Volume", "Volume (m3)");
-                matrix[0, 11] = HeaderFromMap(_prepareBoqHeaderMap, "Formwork", "Formwork (m2)");
-                matrix[0, 12] = HeaderFromMap(_prepareBoqHeaderMap, "QsRuleCode", "Rule Code");
-                matrix[0, 13] = HeaderFromMap(_prepareBoqHeaderMap, "QsFormula", "Formula");
-                matrix[0, 14] = HeaderFromMap(_prepareBoqHeaderMap, "QsBreakdown", "Breakdown");
-
-                for (int i = 0; i < rows.Count; i++)
-                {
-                    PrepareBoqRow row = rows[i];
-                    matrix[i + 1, 0] = row.IsEnabled ? 1 : 0;
-                    matrix[i + 1, 1] = row.SourceSheet ?? "";
-                    matrix[i + 1, 2] = row.ItemCode ?? "";
-                    matrix[i + 1, 3] = row.Description ?? "";
-                    matrix[i + 1, 4] = row.Unit ?? "";
-                    matrix[i + 1, 5] = row.StructureElement ?? "";
-                    matrix[i + 1, 6] = row.BuildingLevel ?? "";
-                    matrix[i + 1, 7] = row.Room ?? "";
-                    matrix[i + 1, 8] = row.TypeName ?? "";
-                    matrix[i + 1, 9] = row.Quantity;
-                    matrix[i + 1, 10] = Math.Round(row.TotalVolumeM3, 3);
-                    matrix[i + 1, 11] = Math.Round(row.TotalFormworkAreaM2, 3);
-                    matrix[i + 1, 12] = row.QsRuleCode ?? "";
-                    matrix[i + 1, 13] = row.QsFormula ?? "";
-                    matrix[i + 1, 14] = row.QsBreakdown ?? "";
-                }
-
-                topLeftObj = worksheet.Cells[1, 1];
-                bottomRightObj = worksheet.Cells[rowCount, colCount];
-                rangeObj = worksheet.Range[topLeftObj, bottomRightObj];
-                dynamic range = rangeObj;
-                range.Value2 = matrix;
-
-                headerRangeObj = worksheet.Range[worksheet.Cells[1, 1], worksheet.Cells[1, colCount]];
-                dynamic headerRange = headerRangeObj;
-                headerRange.Font.Bold = true;
-
-                try
-                {
-                    worksheet.Columns.AutoFit();
-                }
-                catch
-                {
-                    // ignore formatting issues
-                }
-
-                workbook.SaveAs(filePath, 51);
-                workbook.Close(true);
-                app.Quit();
-            }
-            finally
-            {
-                SafeReleaseCom(headerRangeObj);
-                SafeReleaseCom(bottomRightObj);
-                SafeReleaseCom(topLeftObj);
-                SafeReleaseCom(rangeObj);
-                SafeReleaseCom(worksheetObj);
-                SafeReleaseCom(workbookObj);
-                SafeReleaseCom(workbooksObj);
-                SafeReleaseCom(appObj);
-            }
-        }
-
-        private async Task TryAutoSyncBoqCsvAsync()
-        {
-            if (BoqAutoSyncCsvCheck?.IsChecked != true) return;
-            if (string.IsNullOrWhiteSpace(_boqLastCsvExportPath)) return;
-
-            List<BoqTableRow> rows = _boqRows.ToList();
-            if (rows.Count == 0) return;
-
-            string path = _boqLastCsvExportPath;
-            try
-            {
-                string csv = await Task.Run(() => BuildBoqCsv(rows, true));
-                await Task.Run(() => File.WriteAllText(path, csv, new UTF8Encoding(false)));
-                ShowStatus($"BOQ auto-synced CSV: {path} ({rows.Count} row(s)).");
-            }
-            catch (Exception ex)
-            {
-                ShowStatus("BOQ auto-sync failed: " + ex.Message);
-            }
-        }
-
-        private bool TryCaptureBoqExcelLink(int writeRows, int writeCols)
-        {
-            if (writeRows <= 0 || writeCols <= 0) return false;
-
-            object appObj = null;
-            object workbook = null;
-            object worksheet = null;
-            object activeCell = null;
-            bool captured = false;
-
-            try
-            {
-                appObj = ComActiveObject.GetActiveObject("Excel.Application");
-                if (appObj == null) return false;
-
-                dynamic app = appObj;
-                workbook = app.ActiveWorkbook;
-                worksheet = app.ActiveSheet;
-                activeCell = app.ActiveCell;
-                if (workbook == null || worksheet == null || activeCell == null) return false;
-
-                string workbookName = Convert.ToString(((dynamic)workbook).FullName) ?? "";
-                string worksheetName = Convert.ToString(((dynamic)worksheet).Name) ?? "";
-                int startRow = Convert.ToInt32(((dynamic)activeCell).Row, CultureInfo.InvariantCulture);
-                int startCol = Convert.ToInt32(((dynamic)activeCell).Column, CultureInfo.InvariantCulture);
-
-                if (startRow <= 0 || startCol <= 0 || string.IsNullOrWhiteSpace(worksheetName)) return false;
-
-                _boqExcelLink = new BoqExcelLinkTarget
-                {
-                    WorkbookFullName = workbookName,
-                    WorksheetName = worksheetName,
-                    StartRow = startRow,
-                    StartColumn = startCol,
-                    LastWriteRows = writeRows,
-                    LastWriteCols = writeCols,
-                    SelectionStartRowIndex = Math.Max(0, _boqLastSelectionStartRowIndex),
-                    SelectionRowCount = Math.Max(1, _boqLastSelectionRowCount),
-                    SelectionColumnDisplayIndices = (_boqLastSelectionColumnDisplayIndices ?? new List<int>())
-                        .Distinct()
-                        .OrderBy(i => i)
-                        .ToList()
-                };
-
-                captured = true;
-                ShowStatus($"Excel link captured: {worksheetName} R{startRow}C{startCol}.");
-            }
-            catch
-            {
-                // Excel may not be running or expose COM context from this session.
-                captured = false;
-            }
-            finally
-            {
-                SafeReleaseCom(activeCell);
-                SafeReleaseCom(worksheet);
-                SafeReleaseCom(workbook);
-                SafeReleaseCom(appObj);
-            }
-
-            return captured;
-        }
-
-        private async Task TryAutoSyncBoqExcelLinkAsync()
-        {
-            if (BoqAutoSyncCsvCheck?.IsChecked != true) return;
-            if (_boqExcelLink == null || !_boqExcelLink.IsValid) return;
-            if (_boqExcelSyncInProgress) return;
-
-            _boqExcelSyncInProgress = true;
-            try
-            {
-                for (int i = 0; i < 10; i++)
-                {
-                    if (TryAutoSyncBoqExcelLinkOnce())
-                    {
-                        return;
-                    }
-
-                    await Task.Delay(150);
-                }
-            }
-            finally
-            {
-                _boqExcelSyncInProgress = false;
-            }
-        }
-
-        private bool TryAutoSyncBoqExcelLinkOnce()
-        {
-            if (_boqExcelLink == null || !_boqExcelLink.IsValid) return false;
-
-            if (!TryBuildBoqMatrixForExcelLink(out object[,] matrix, out int rows, out int cols) || rows <= 0 || cols <= 0)
-            {
-                return false;
-            }
-
-            object appObj = null;
-            object workbooks = null;
-            object workbook = null;
-            object worksheet = null;
-            object oldRange = null;
-            object range = null;
-            object topLeft = null;
-            object bottomRight = null;
-
-            try
-            {
-                appObj = ComActiveObject.GetActiveObject("Excel.Application");
-                if (appObj == null) return false;
-                dynamic app = appObj;
-
-                workbooks = app.Workbooks;
-                workbook = FindExcelWorkbook(workbooks, _boqExcelLink.WorkbookFullName) ?? app.ActiveWorkbook;
-                if (workbook == null) return false;
-
-                worksheet = GetExcelWorksheet(workbook, _boqExcelLink.WorksheetName) ?? ((dynamic)workbook).ActiveSheet;
-                if (worksheet == null) return false;
-
-                int row0 = _boqExcelLink.StartRow;
-                int col0 = _boqExcelLink.StartColumn;
-                if (row0 <= 0 || col0 <= 0) return false;
-
-                if (_boqExcelLink.LastWriteRows > 0 && _boqExcelLink.LastWriteCols > 0)
-                {
-                    dynamic wsOld = worksheet;
-                    object oldTopLeft = wsOld.Cells[row0, col0];
-                    object oldBottomRight = wsOld.Cells[row0 + _boqExcelLink.LastWriteRows - 1, col0 + _boqExcelLink.LastWriteCols - 1];
-                    oldRange = wsOld.Range[oldTopLeft, oldBottomRight];
-                    ((dynamic)oldRange).ClearContents();
-                    SafeReleaseCom(oldBottomRight);
-                    SafeReleaseCom(oldTopLeft);
-                }
-
-                dynamic ws = worksheet;
-                topLeft = ws.Cells[row0, col0];
-                bottomRight = ws.Cells[row0 + rows - 1, col0 + cols - 1];
-                range = ws.Range[topLeft, bottomRight];
-                for (int c = 0; c < cols; c++)
-                {
-                    string header = matrix[0, c] as string ?? "";
-                    if (!string.Equals(header, "BuildingLevel", StringComparison.OrdinalIgnoreCase) &&
-                        !string.Equals(header, "Building Level", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    try
-                    {
-                        object columnTop = ws.Cells[row0, col0 + c];
-                        object columnBottom = ws.Cells[row0 + rows - 1, col0 + c];
-                        object columnRange = ws.Range[columnTop, columnBottom];
-                        ((dynamic)columnRange).NumberFormat = "@";
-                        SafeReleaseCom(columnRange);
-                        SafeReleaseCom(columnBottom);
-                        SafeReleaseCom(columnTop);
-                    }
-                    catch
-                    {
-                        // Auto-sync should continue even if Excel refuses formatting.
-                    }
-                }
-
-                ((dynamic)range).Value2 = matrix;
-
-                _boqExcelLink.LastWriteRows = rows;
-                _boqExcelLink.LastWriteCols = cols;
-                return true;
-            }
-            catch
-            {
-                // Skip hard errors to avoid breaking user workflow.
-                return false;
-            }
-            finally
-            {
-                SafeReleaseCom(bottomRight);
-                SafeReleaseCom(topLeft);
-                SafeReleaseCom(range);
-                SafeReleaseCom(oldRange);
-                SafeReleaseCom(worksheet);
-                SafeReleaseCom(workbook);
-                SafeReleaseCom(workbooks);
-                SafeReleaseCom(appObj);
-            }
-        }
-
-        private bool TryBuildBoqMatrixForExcelLink(out object[,] matrix, out int rowCount, out int colCount)
-        {
-            matrix = null;
-            rowCount = 0;
-            colCount = 0;
-            if (_boqExcelLink == null || BoqTableGrid == null) return false;
-
-            List<DataGridColumn> columns = GetBoqColumnsForExcelLink();
-            List<BoqTableRow> rows = GetBoqRowsForExcelLink();
-            if (columns.Count == 0 || rows.Count == 0) return false;
-
-            rowCount = rows.Count;
-            colCount = columns.Count;
-            matrix = new object[rowCount, colCount];
-
-            for (int r = 0; r < rows.Count; r++)
-            {
-                for (int c = 0; c < colCount; c++)
-                {
-                    if (_boqLastSelectionIsCellBased &&
-                        _boqLastSelectedCells != null &&
-                        _boqLastSelectedCells.Count > 0)
-                    {
-                        int rowIndex = _boqExcelLink.SelectionStartRowIndex + r;
-                        int colIndex = columns[c].DisplayIndex;
-                        if (!_boqLastSelectedCells.Contains((rowIndex, colIndex)))
-                        {
-                            matrix[r, c] = "";
-                            continue;
-                        }
-                    }
-
-                    matrix[r, c] = GetBoqCellValue(rows[r], columns[c]);
-                }
-            }
-
-            return true;
-        }
-
-        private List<DataGridColumn> GetBoqColumnsForExcelLink()
-        {
-            if (BoqTableGrid == null) return new List<DataGridColumn>();
-
-            List<int> display = _boqExcelLink?.SelectionColumnDisplayIndices?
-                .Distinct()
-                .OrderBy(i => i)
-                .ToList() ?? new List<int>();
-
-            if (display.Count == 0)
-            {
-                return BoqTableGrid.Columns.OrderBy(c => c.DisplayIndex).ToList();
-            }
-
-            var lookup = BoqTableGrid.Columns
-                .GroupBy(c => c.DisplayIndex)
-                .ToDictionary(g => g.Key, g => g.First());
-            var cols = new List<DataGridColumn>();
-            foreach (int idx in display)
-            {
-                if (lookup.TryGetValue(idx, out DataGridColumn col))
-                {
-                    cols.Add(col);
-                }
-            }
-
-            return cols.Count > 0 ? cols : BoqTableGrid.Columns.OrderBy(c => c.DisplayIndex).ToList();
-        }
-
-        private List<BoqTableRow> GetBoqRowsForExcelLink()
-        {
-            if (_boqRows.Count == 0) return new List<BoqTableRow>();
-
-            if (_boqExcelLink == null || _boqExcelLink.SelectionRowCount <= 0)
-            {
-                return _boqRows.ToList();
-            }
-
-            int start = Math.Max(0, _boqExcelLink.SelectionStartRowIndex);
-            if (start >= _boqRows.Count) start = _boqRows.Count - 1;
-
-            int count = Math.Max(1, _boqExcelLink.SelectionRowCount);
-            if (start + count > _boqRows.Count)
-            {
-                count = _boqRows.Count - start;
-            }
-
-            return _boqRows.Skip(start).Take(count).ToList();
-        }
-
         private static object FindExcelWorkbook(object workbooksObj, string fullName)
         {
             if (workbooksObj == null) return null;
@@ -48622,20 +47960,6 @@ namespace CamboBIM.Revit2024.Addin
             }
         }
 
-        private static int GetBoqStructureOrder(string name)
-        {
-            if (string.IsNullOrWhiteSpace(name)) return int.MaxValue;
-            if (string.Equals(name, "Foundation", StringComparison.OrdinalIgnoreCase)) return 1;
-            if (string.Equals(name, "Structural Column", StringComparison.OrdinalIgnoreCase)) return 2;
-            if (string.Equals(name, "Wall", StringComparison.OrdinalIgnoreCase)) return 3;
-            if (string.Equals(name, "Structural Framing", StringComparison.OrdinalIgnoreCase)) return 4;
-            if (string.Equals(name, "Floor", StringComparison.OrdinalIgnoreCase)) return 5;
-            if (string.Equals(name, "Stair", StringComparison.OrdinalIgnoreCase)) return 6;
-            if (string.Equals(name, "Soil Excavation", StringComparison.OrdinalIgnoreCase)) return 7;
-            if (string.Equals(name, "Soil Backfilled", StringComparison.OrdinalIgnoreCase)) return 8;
-            return 99;
-        }
-
         private string GetSelectedLayerName()
         {
             if (IsGridlineTab())
@@ -48676,154 +48000,6 @@ namespace CamboBIM.Revit2024.Addin
             }
 
             return LayerCombo?.SelectedItem as string ?? "";
-        }
-
-        private QsScope GetQsScope()
-        {
-            if (QsScopeSelectionRadio?.IsChecked == true)
-            {
-                return QsScope.CurrentSelection;
-            }
-            if (QsScopeAllRadio?.IsChecked == true)
-            {
-                return QsScope.EntireModel;
-            }
-
-            return QsScope.CurrentView;
-        }
-
-        private void UpdateQsOverviewKpis()
-        {
-            if (QsScopeBadgeText != null)
-            {
-                string scopeText = GetQsScope() == QsScope.CurrentSelection
-                    ? "Current Selection"
-                    : GetQsScope() == QsScope.EntireModel
-                        ? "Entire Model"
-                        : "Current View";
-                QsScopeBadgeText.Text = scopeText;
-            }
-
-            if (QsCategoryCountText != null)
-            {
-                var categories = new[]
-                {
-                    QsStructuralFramingCheck,
-                    QsStructuralColumnCheck,
-                    QsStructuralWallCheck,
-                    QsStructuralFloorCheck,
-                    QsStructuralStairCheck,
-                    QsFoundationCheck,
-                    QsCreateFormworkShapeCheck
-                };
-                int selectedCount = categories.Count(cb => cb?.IsChecked == true);
-                QsCategoryCountText.Text = selectedCount.ToString(CultureInfo.InvariantCulture) + " selected";
-            }
-
-            if (QsActiveRulesCountText != null)
-            {
-                System.Windows.Controls.CheckBox qsSoilExcavationIncludeCheck = GetQsSoilExcavationIncludeCheck();
-                System.Windows.Controls.CheckBox qsSoilBackfilledIncludeCheck = GetQsSoilBackfilledIncludeCheck();
-                System.Windows.Controls.CheckBox qsSoilBackfilledSubtractStructureCheck = GetQsSoilBackfilledSubtractStructureCheck();
-
-                var rules = new[]
-                {
-                    QsFoundationTopCheck,
-                    QsColumnSubtractBeamCheck,
-                    QsColumnSubtractBeamGECheck,
-                    QsWallOpeningBottomCheck,
-                    QsBeamBottomCheck,
-                    QsFloorBottomCheck,
-                    QsFloorSubtractBeamCheck,
-                    QsFloorSubtractFoundationCheck,
-                    QsFloorSubtractOthersCheck,
-                    QsStairTopCheck,
-                    QsStairSubtractBeamCheck,
-                    QsStairSubtractOthersCheck,
-                    qsSoilExcavationIncludeCheck,
-                    qsSoilBackfilledIncludeCheck,
-                    qsSoilBackfilledSubtractStructureCheck
-                };
-                int enabledRules = rules.Count(cb => cb?.IsChecked == true);
-                QsActiveRulesCountText.Text = enabledRules.ToString(CultureInfo.InvariantCulture) + " enabled";
-            }
-        }
-
-        private void UpdateBoqOverviewKpis(int levelCount, string modeText)
-        {
-            if (BoqKpiRowsText != null)
-            {
-                BoqKpiRowsText.Text = _boqRows.Count.ToString(CultureInfo.InvariantCulture);
-            }
-            if (BoqKpiSourceRowsText != null)
-            {
-                BoqKpiSourceRowsText.Text = _boqAllRows.Count.ToString(CultureInfo.InvariantCulture);
-            }
-            if (BoqKpiLevelsText != null)
-            {
-                BoqKpiLevelsText.Text = levelCount.ToString(CultureInfo.InvariantCulture);
-            }
-            if (BoqKpiModeText != null)
-            {
-                BoqKpiModeText.Text = string.IsNullOrWhiteSpace(modeText) ? "Detail (Type)" : modeText;
-            }
-            if (BoqEmptyStateText != null)
-            {
-                BoqEmptyStateText.Visibility = _boqRows.Count > 0
-                    ? System.Windows.Visibility.Collapsed
-                    : System.Windows.Visibility.Visible;
-            }
-        }
-
-        private void InitializeQsDefaults()
-        {
-            // Do not hardcode machine-specific path. Leave empty so runtime resolver can find/create a local file.
-            _handler.Request.QsSharedParameterFilePath = "";
-            _handler.Request.QsSharedParameterGroupName = "CBIM-QS";
-
-            if (QsSummaryText != null)
-            {
-                QsSummaryText.Text = "Ready to calculate formwork quantities.";
-            }
-            if (BoqSummaryText != null)
-            {
-                BoqSummaryText.Text = "Click Refresh to load BOQ table.";
-            }
-            if (BoqElementFilterCombo != null)
-            {
-                BoqElementFilterCombo.ItemsSource = new List<string> { "All" };
-                BoqElementFilterCombo.SelectedIndex = 0;
-            }
-            if (BoqBuildingLevelFilterCombo != null)
-            {
-                BoqBuildingLevelFilterCombo.ItemsSource = new List<string> { "All" };
-                BoqBuildingLevelFilterCombo.SelectedIndex = 0;
-            }
-            PopulateBoqReportFilterOptions();
-            if (BoqPivotModeCombo != null)
-            {
-                BoqPivotModeCombo.ItemsSource = new List<string>
-                {
-                    "Detail (Type)",
-                    "Pivot by Floor",
-                    "Pivot by Element",
-                    "Pivot by Floor + Element",
-                    "Pivot by Floor + Room + Element"
-                };
-                BoqPivotModeCombo.SelectedIndex = 0;
-            }
-            if (BoqAutoSyncCsvCheck != null)
-            {
-                BoqAutoSyncCsvCheck.IsChecked = true;
-            }
-            InitializeQsMeasurementSettings();
-            InitializeQsMeasurementRules();
-            RegisterQsUiOptionHandlers();
-            UpdateQsOverviewKpis();
-            UpdateBoqOverviewKpis(levelCount: 0, modeText: "Detail (Type)");
-            RefreshBoqReportCategoryTree();
-            ApplyBoqReport();
-            UpdatePrepareBoqSummary();
         }
 
         private string GetSelectedLabelLayerName()
@@ -49100,16 +48276,6 @@ namespace CamboBIM.Revit2024.Addin
             if (MainTabControl?.SelectedItem is System.Windows.Controls.TabItem item)
             {
                 return string.Equals(item.Header?.ToString(), "LINKSHEET", StringComparison.OrdinalIgnoreCase);
-            }
-
-            return false;
-        }
-
-        private bool IsSiteProgressTab()
-        {
-            if (MainTabControl?.SelectedItem is System.Windows.Controls.TabItem item)
-            {
-                return string.Equals(item.Header?.ToString(), "SITE PROGRESS", StringComparison.OrdinalIgnoreCase);
             }
 
             return false;

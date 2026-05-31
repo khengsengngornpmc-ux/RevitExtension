@@ -5,19 +5,37 @@ using System.Runtime.InteropServices;
 // General Information about an assembly is controlled through the following
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-#if REVIT2025
+#if REVIT2027
+[assembly: AssemblyTitle("MHNK Revit 2027 Extension")]
+[assembly: System.Runtime.Versioning.SupportedOSPlatform("windows")]
+#elif REVIT2026
+[assembly: AssemblyTitle("MHNK Revit 2026 Extension")]
+[assembly: System.Runtime.Versioning.SupportedOSPlatform("windows")]
+#elif REVIT2025
 [assembly: AssemblyTitle("MHNK Revit 2025 Extension")]
 [assembly: System.Runtime.Versioning.SupportedOSPlatform("windows")]
-#else
+#elif REVIT2024
 [assembly: AssemblyTitle("MHNK Revit 2024 Extension")]
+#elif REVIT2023
+[assembly: AssemblyTitle("MHNK Revit 2023 Extension")]
+#else
+[assembly: AssemblyTitle("MHNK Revit Extension")]
 #endif
 [assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("Mohanokor Engineering Construction")]
-#if REVIT2025
+#if REVIT2027
+[assembly: AssemblyProduct("MHNK Revit 2027 Extension")]
+#elif REVIT2026
+[assembly: AssemblyProduct("MHNK Revit 2026 Extension")]
+#elif REVIT2025
 [assembly: AssemblyProduct("MHNK Revit 2025 Extension")]
-#else
+#elif REVIT2024
 [assembly: AssemblyProduct("MHNK Revit 2024 Extension")]
+#elif REVIT2023
+[assembly: AssemblyProduct("MHNK Revit 2023 Extension")]
+#else
+[assembly: AssemblyProduct("MHNK Revit Extension")]
 #endif
 [assembly: AssemblyCopyright("Copyright ©  2026")]
 [assembly: AssemblyTrademark("")]

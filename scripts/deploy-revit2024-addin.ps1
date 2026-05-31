@@ -97,10 +97,14 @@ if ([string]::IsNullOrWhiteSpace($AssemblyPath)) {
 
     if (-not [string]::IsNullOrWhiteSpace($Platform) -and
         -not $Platform.Equals("AnyCPU", [StringComparison]::OrdinalIgnoreCase)) {
+        $candidates += Join-Path $projectRoot ("bin\Revit" + $RevitYear + "\" + $Platform + "\" + $Configuration + "\" + $assemblyFileName)
         $candidates += Join-Path $projectRoot ("bin\" + $Platform + "\" + $Configuration + "\" + $assemblyFileName)
     }
 
     # Common output layouts used by VS / MSBuild depending on Platform.
+    $candidates += Join-Path $projectRoot ("bin\Revit" + $RevitYear + "\" + $Configuration + "\" + $assemblyFileName)
+    $candidates += Join-Path $projectRoot ("bin\Revit" + $RevitYear + "\x64\" + $Configuration + "\" + $assemblyFileName)
+    $candidates += Join-Path $projectRoot ("bin\Revit" + $RevitYear + "\AnyCPU\" + $Configuration + "\" + $assemblyFileName)
     $candidates += Join-Path $projectRoot ("bin\" + $Configuration + "\" + $assemblyFileName)
     $candidates += Join-Path $projectRoot ("bin\x64\" + $Configuration + "\" + $assemblyFileName)
     $candidates += Join-Path $projectRoot ("bin\AnyCPU\" + $Configuration + "\" + $assemblyFileName)

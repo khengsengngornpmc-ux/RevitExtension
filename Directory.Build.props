@@ -1,5 +1,17 @@
 <Project>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'CamboBIM.Revit2023.Addin'">
+    <BaseIntermediateOutputPath>obj\Revit2023\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'CamboBIM.Revit2024.Addin'">
+    <BaseIntermediateOutputPath>obj\Revit2024\</BaseIntermediateOutputPath>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'CamboBIM.Revit2025.Addin'">
     <BaseIntermediateOutputPath>obj\Revit2025\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'CamboBIM.Revit2026.Addin'">
+    <BaseIntermediateOutputPath>obj\Revit2026\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'CamboBIM.Revit2027.Addin'">
+    <BaseIntermediateOutputPath>obj\Revit2027\</BaseIntermediateOutputPath>
   </PropertyGroup>
 </Project>

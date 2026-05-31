@@ -1,14 +1,29 @@
 {
   "profiles": {
-    "CamboBIM.Revit2025.Addin": {
+    "Revit 2023": {
       "commandName": "Executable",
-      "executablePath": "C:\\Program Files\\Autodesk\\Revit 2025\\Revit.exe",
-      "workingDirectory": "C:\\Program Files\\Autodesk\\Revit 2025"
+      "executablePath": "C:\\Program Files\\Autodesk\\Revit 2023\\Revit.exe",
+      "workingDirectory": "C:\\Program Files\\Autodesk\\Revit 2023"
+    },
+    "Revit 2024": {
+      "commandName": "Executable",
+      "executablePath": "C:\\Program Files\\Autodesk\\Revit 2024\\Revit.exe",
+      "workingDirectory": "C:\\Program Files\\Autodesk\\Revit 2024"
     },
     "Revit 2025": {
       "commandName": "Executable",
       "executablePath": "C:\\Program Files\\Autodesk\\Revit 2025\\Revit.exe",
       "workingDirectory": "C:\\Program Files\\Autodesk\\Revit 2025"
+    },
+    "Revit 2026": {
+      "commandName": "Executable",
+      "executablePath": "C:\\Program Files\\Autodesk\\Revit 2026\\Revit.exe",
+      "workingDirectory": "C:\\Program Files\\Autodesk\\Revit 2026"
+    },
+    "Revit 2027": {
+      "commandName": "Executable",
+      "executablePath": "C:\\Program Files\\Autodesk\\Revit 2027\\Revit.exe",
+      "workingDirectory": "C:\\Program Files\\Autodesk\\Revit 2027"
     }
   }
 }
