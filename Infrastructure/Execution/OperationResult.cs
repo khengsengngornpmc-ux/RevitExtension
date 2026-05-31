@@ -61,7 +61,7 @@ namespace CamboBIM.Revit2024.Addin
             return new OperationResult<T>(true, value, message, string.Empty, null);
         }
 
-        public static OperationResult<T> Failure(string message, string errorCode = "", Exception exception = null)
+        public static new OperationResult<T> Failure(string message, string errorCode = "", Exception exception = null)
         {
             return new OperationResult<T>(false, default(T), message, errorCode, exception);
         }
