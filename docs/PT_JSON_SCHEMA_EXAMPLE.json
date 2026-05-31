@@ -1,0 +1,70 @@
+{
+  "schema": "mhnk.pt.import/1.0",
+  "importMethod": "direct-adapt",
+  "source": {
+    "sourceType": "adapt-adm",
+    "sourcePath": "C:\\Projects\\PT\\Level03.adm",
+    "displayName": "Level03.adm",
+    "generator": "ADAPT-Builder",
+    "projectName": "Tower A Podium Level 03"
+  },
+  "units": {
+    "geometry": "ft",
+    "displayLength": "mm",
+    "station": "ft",
+    "elevation": "ft"
+  },
+  "tendons": [
+    {
+      "tendonId": "T-01",
+      "groupKey": "BAND A / T-01",
+      "profileName": "BAND A",
+      "tendonName": "T-01",
+      "sourceLabel": "BAND A / T-01",
+      "sourceLayer": "TENDON_BAND_A",
+      "tendonType": "unbonded",
+      "strandCount": 12,
+      "ductDiameterMm": 50.0,
+      "renderedDiameterMm": 50.0,
+      "centerlinePoints": [
+        {
+          "xFt": 0.0,
+          "yFt": 0.0,
+          "zFt": 0.55,
+          "stationFt": 0.0,
+          "elevationFt": 0.55
+        },
+        {
+          "xFt": 16.4,
+          "yFt": 0.0,
+          "zFt": 0.35,
+          "stationFt": 16.4,
+          "elevationFt": 0.35
+        },
+        {
+          "xFt": 32.8,
+          "yFt": 0.0,
+          "zFt": 0.62,
+          "stationFt": 32.8,
+          "elevationFt": 0.62
+        }
+      ],
+      "profileHints": {
+        "lowPointStationFt": 16.4,
+        "lowPointElevationFt": 0.35,
+        "highPointStationFt": 32.8,
+        "highPointElevationFt": 0.62,
+        "totalLengthFt": 32.8
+      },
+      "tags": [
+        "adapt-direct",
+        "shop-drawing-candidate"
+      ]
+    }
+  ],
+  "cadReferences": [],
+  "notes": [
+    "Custom intermediate PT JSON, not an official ADAPT export.",
+    "Designed to normalize both direct ADAPT and DWG/DXF workflows."
+  ]
+}

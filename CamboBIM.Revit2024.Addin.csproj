@@ -113,6 +113,8 @@
     <Compile Include="TasReferenceSettings.cs" />
     <Compile Include="TasIdentificationOptions.cs" />
     <Compile Include="CamboBimJson.cs" />
+    <Compile Include="PtJsonModels.cs" />
+    <Compile Include="PtJsonMapper.cs" />
     <Compile Include="CamboBimRuntime.cs" />
     <Compile Include="ComActiveObject.cs" />
     <Compile Include="IdentifySvgIconFactory.cs" />

@@ -18404,16 +18404,17 @@ namespace CamboBIM.Revit2024.Addin
                     }
                 }
 
-                if (modelView != null && slots.Count > 1)
+                int modelSlotIndex = draftingViewport != null ? 1 : 0;
+                if (modelView != null && slots.Count > modelSlotIndex)
                 {
                     Viewport modelViewport = PlaceShopDrawingViewportFitted(
                         doc,
                         sheet,
                         modelView,
-                        slots[1],
+                        slots[modelSlotIndex],
                         preferredScale: Math.Max(1, modelView.Scale),
                         titleOnSheet: BuildShopDrawingPackageViewportTitle(drawingTitle, modelViewport: true),
-                        detailNumber: "2");
+                        detailNumber: draftingViewport != null ? "2" : "1");
                     if (modelViewport != null)
                     {
                         placedViewports++;
@@ -18899,6 +18900,11 @@ namespace CamboBIM.Revit2024.Addin
             if (title.IndexOf("INDEX", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 return "INDEX";
+            }
+
+            if (title.IndexOf("PROFILE", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return "PROFILE";
             }
 
             return "LAYOUT";
@@ -20499,6 +20505,7 @@ namespace CamboBIM.Revit2024.Addin
                     Request.SelectedLinkId = existingCad.Id;
                     List<string> existingLayers = CollectCadLayers(doc, existingCad);
                     AdaptCadLayerAnalysis existingAnalysis = AnalyzeAdaptCadLayers(doc, existingCad);
+                    BuildAdaptCadPtPackage(doc, existingCad, path, existingAnalysis, out int existingPackageViews, out int existingPackageSheets, out bool existingPackageSheetsSkipped);
                     _window?.UpdateLink(existingCad.Name, existingLayers);
                     WriteAdaptCadImportReport(
                         doc,
@@ -20513,7 +20520,8 @@ namespace CamboBIM.Revit2024.Addin
                         existingCad.Name +
                         ". Layers: " +
                         existingLayers.Count.ToString(CultureInfo.InvariantCulture) +
-                        existingAnalysis.BuildStatusSuffix());
+                        existingAnalysis.BuildStatusSuffix() +
+                        BuildAdaptCadPackageStatusSuffix(existingPackageViews, existingPackageSheets, existingPackageSheetsSkipped));
                     return;
                 }
             }
@@ -20590,6 +20598,7 @@ namespace CamboBIM.Revit2024.Addin
             Request.SelectedLinkId = cad.Id;
             List<string> layers = CollectCadLayers(doc, cad);
             AdaptCadLayerAnalysis analysis = AnalyzeAdaptCadLayers(doc, cad);
+            BuildAdaptCadPtPackage(doc, cad, path, analysis, out int packageViews, out int packageSheets, out bool packageSheetsSkipped);
             _window?.UpdateLink(cad.Name, layers);
 
             string action = linked ? "linked" : "imported";
@@ -20601,7 +20610,8 @@ namespace CamboBIM.Revit2024.Addin
                 "ADAPT CAD: " + action + " " + System.IO.Path.GetFileName(path) +
                 " at project origin and selected it as the CAD2MODEL source." +
                 layerMessage +
-                analysis.BuildStatusSuffix());
+                analysis.BuildStatusSuffix() +
+                BuildAdaptCadPackageStatusSuffix(packageViews, packageSheets, packageSheetsSkipped));
         }
 
         private enum AdaptExistingCadChoice
@@ -20991,6 +21001,2240 @@ namespace CamboBIM.Revit2024.Addin
             }
         }
 
+        private void BuildAdaptCadPtPackage(
+            Document doc,
+            ImportInstance cad,
+            string sourcePath,
+            AdaptCadLayerAnalysis analysis,
+            out int createdViews,
+            out int createdSheets,
+            out bool sheetsSkipped)
+        {
+            createdViews = 0;
+            createdSheets = 0;
+            sheetsSkipped = false;
+            if (doc == null || cad == null)
+            {
+                return;
+            }
+
+            List<string> previewLayers = GetAdaptCadPackageLayers(analysis);
+            string sourceToken = BuildAdaptProfileViewSourceToken(sourcePath);
+            string markPrefix = NormalizeAdaptShopMarkPrefix(Request?.AdaptShopMarkPrefix);
+            int markStartNumber = GetAdaptShopMarkStartNumber(Request?.AdaptShopMarkStartNumber ?? 1);
+            int markDigits = GetAdaptShopMarkDigits(Request?.AdaptShopMarkDigits ?? 3);
+            AdaptPtShopMarkSequenceMode sequenceMode = Request?.AdaptShopMarkSequenceMode ?? AdaptPtShopMarkSequenceMode.SourceAndName;
+            bool preserveCadShopMarks = Request == null || Request.AdaptPreserveCadShopMarks;
+            List<AdaptCadPreviewLayerPackage> previewLayerPackages =
+                BuildAdaptCadPreviewLayerPackages(doc, cad, previewLayers, markPrefix, markStartNumber, markDigits, sequenceMode, preserveCadShopMarks);
+            List<AdaptPtTakeoffRow> takeoffRows = BuildAdaptCadPtTakeoffRows(previewLayerPackages);
+            PtImportJsonDocument snapshotDocument = BuildAdaptCadPtImportSnapshotDocument(sourcePath, previewLayerPackages, sequenceMode, preserveCadShopMarks);
+
+            try
+            {
+                using (Transaction t = new Transaction(doc, "CamboBIM - Build ADAPT CAD PT Package"))
+                {
+                    t.Start();
+
+                    DeleteAdaptCadPtPreviewSheets(doc, sourceToken);
+                    DeleteAdaptCadPtIndexViews(doc, sourceToken);
+                    DeleteStaleAdaptCadPtPreviewViews(doc, sourceToken, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+
+                    if (previewLayers.Count == 0)
+                    {
+                        t.Commit();
+                        return;
+                    }
+
+                    if (previewLayerPackages.Count == 0)
+                    {
+                        t.Commit();
+                        return;
+                    }
+
+                    List<ViewDrafting> previewViews = SyncAdaptCadPtPreviewViews(doc, sourcePath, previewLayerPackages);
+                    createdViews = previewViews.Count;
+                    if (previewViews.Count > 0)
+                    {
+                        ElementId titleBlockTypeId = GetShopDrawingTitleBlockTypeId(doc);
+                        if (titleBlockTypeId != null && titleBlockTypeId != ElementId.InvalidElementId)
+                        {
+                            string issueText = NormalizeShopDrawingIssueText(Request?.ShopDrawingsIssueText);
+                            ShopDrawingIssueMetadata metadata = BuildShopDrawingIssueMetadata(Request, issueText);
+                            createdSheets = SyncAdaptCadPtPreviewSheets(doc, sourcePath, previewViews, titleBlockTypeId, metadata);
+                            createdSheets += SyncAdaptCadPtModelReviewSheet(doc, sourcePath, cad, titleBlockTypeId, metadata, out int modelViewsCreated);
+                            createdViews += modelViewsCreated;
+                            createdSheets += SyncAdaptCadPtTakeoffSheet(doc, sourcePath, takeoffRows, titleBlockTypeId, metadata, out int takeoffViewsCreated);
+                            createdViews += takeoffViewsCreated;
+                        }
+                        else
+                        {
+                            sheetsSkipped = true;
+                        }
+                    }
+
+                    t.Commit();
+                }
+
+                WriteAdaptPtImportSnapshot(sourcePath, snapshotDocument, takeoffRows);
+            }
+            catch
+            {
+                createdViews = 0;
+                createdSheets = 0;
+                sheetsSkipped = false;
+            }
+        }
+
+        private static string BuildAdaptCadPackageStatusSuffix(int viewCount, int sheetCount, bool sheetsSkipped)
+        {
+            if (viewCount <= 0 && sheetCount <= 0)
+            {
+                return sheetsSkipped ? " Native PT preview views were created but sheets were skipped because no title block type was available." : "";
+            }
+
+            string suffix =
+                " Native PT package: " +
+                viewCount.ToString(CultureInfo.InvariantCulture) +
+                " view(s), " +
+                sheetCount.ToString(CultureInfo.InvariantCulture) +
+                " sheet(s)";
+            if (sheetsSkipped)
+            {
+                suffix += " (no title block type, sheets skipped)";
+            }
+
+            return suffix + ".";
+        }
+
+        private static List<string> GetAdaptCadPackageLayers(AdaptCadLayerAnalysis analysis)
+        {
+            var layers = new List<string>();
+            foreach (string layer in (analysis?.CandidateLayers ?? new List<string>())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Take(3))
+            {
+                if (!layers.Any(existing => string.Equals(existing, layer, StringComparison.OrdinalIgnoreCase)))
+                {
+                    layers.Add(layer);
+                }
+            }
+
+            if (layers.Count == 0)
+            {
+                foreach (string layer in (analysis?.TopLayers ?? new List<string>())
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Take(2))
+                {
+                    if (!layers.Any(existing => string.Equals(existing, layer, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        layers.Add(layer);
+                    }
+                }
+            }
+
+            return layers;
+        }
+
+        private List<ViewDrafting> SyncAdaptCadPtPreviewViews(
+            Document doc,
+            string sourcePath,
+            IList<AdaptCadPreviewLayerPackage> layerPackages)
+        {
+            var updatedViews = new List<ViewDrafting>();
+            if (doc == null)
+            {
+                return updatedViews;
+            }
+
+            ViewFamilyType draftingType = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewFamilyType))
+                .Cast<ViewFamilyType>()
+                .FirstOrDefault(x => x.ViewFamily == ViewFamily.Drafting);
+            if (draftingType == null)
+            {
+                return updatedViews;
+            }
+
+            TextNoteType textType = new FilteredElementCollector(doc)
+                .OfClass(typeof(TextNoteType))
+                .Cast<TextNoteType>()
+                .FirstOrDefault();
+            GraphicsStyle lineStyle = EnsureAdaptTendonLineStyle(doc);
+            string sourceToken = BuildAdaptProfileViewSourceToken(sourcePath);
+            var validViewNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (AdaptCadPreviewLayerPackage layerPackage in (layerPackages ?? new List<AdaptCadPreviewLayerPackage>())
+                .Where(x => x != null && !string.IsNullOrWhiteSpace(x.LayerName)))
+            {
+                string layerName = layerPackage.LayerName;
+                CadShapeHits hits = layerPackage.Hits ?? new CadShapeHits();
+                List<AdaptCadPreviewChain> chains = layerPackage.Chains ?? new List<AdaptCadPreviewChain>();
+                if (hits?.Lines == null || hits.Lines.Count == 0)
+                {
+                    continue;
+                }
+
+                string viewName = BuildAdaptCadPtPreviewViewName(sourceToken, layerName);
+                validViewNames.Add(viewName);
+                ViewDrafting view = FindAdaptDraftingViewByName(doc, viewName);
+                if (view == null)
+                {
+                    try
+                    {
+                        view = ViewDrafting.Create(doc, draftingType.Id);
+                        view.Name = viewName;
+                    }
+                    catch
+                    {
+                        view = FindAdaptDraftingViewByName(doc, viewName);
+                    }
+                }
+
+                if (view == null)
+                {
+                    continue;
+                }
+
+                ClearAdaptDraftingViewContents(doc, view);
+                if (!DrawAdaptCadPtDraftingView(doc, view, textType, lineStyle, sourceToken, layerName, hits, chains))
+                {
+                    continue;
+                }
+
+                updatedViews.Add(view);
+
+                foreach (AdaptCadPreviewChain chain in chains
+                    .Where(x => x != null && x.Path.Count >= 2)
+                    .OrderByDescending(x => x.LengthFt)
+                    .Take(8))
+                {
+                    string chainViewName = BuildAdaptCadPtChainViewName(sourceToken, layerName, chain.Mark);
+                    validViewNames.Add(chainViewName);
+                    ViewDrafting chainView = FindAdaptDraftingViewByName(doc, chainViewName);
+                    if (chainView == null)
+                    {
+                        try
+                        {
+                            chainView = ViewDrafting.Create(doc, draftingType.Id);
+                            chainView.Name = chainViewName;
+                        }
+                        catch
+                        {
+                            chainView = FindAdaptDraftingViewByName(doc, chainViewName);
+                        }
+                    }
+
+                    if (chainView == null)
+                    {
+                        continue;
+                    }
+
+                    ClearAdaptDraftingViewContents(doc, chainView);
+                    if (!DrawAdaptCadPtChainDraftingView(doc, chainView, textType, lineStyle, sourceToken, layerName, chain))
+                    {
+                        continue;
+                    }
+
+                    updatedViews.Add(chainView);
+                }
+            }
+
+            DeleteStaleAdaptCadPtPreviewViews(doc, sourceToken, validViewNames);
+            return updatedViews;
+        }
+
+        private static int SyncAdaptCadPtPreviewSheets(
+            Document doc,
+            string sourcePath,
+            IList<ViewDrafting> views,
+            ElementId titleBlockTypeId,
+            ShopDrawingIssueMetadata metadata)
+        {
+            if (doc == null || titleBlockTypeId == null || titleBlockTypeId == ElementId.InvalidElementId)
+            {
+                return 0;
+            }
+
+            string sourceToken = BuildAdaptProfileViewSourceToken(sourcePath);
+            DeleteAdaptCadPtPreviewSheets(doc, sourceToken);
+            DeleteAdaptCadPtIndexViews(doc, sourceToken);
+            DeleteAdaptProfileViewports(doc, (views ?? new List<ViewDrafting>()).Where(v => v != null).Select(v => v.Id));
+            try
+            {
+                doc.Regenerate();
+            }
+            catch
+            {
+            }
+
+            HashSet<string> sheetNumbers = new HashSet<string>(
+                new FilteredElementCollector(doc)
+                    .OfClass(typeof(ViewSheet))
+                    .Cast<ViewSheet>()
+                    .Select(sheet => sheet?.SheetNumber ?? "")
+                    .Where(number => !string.IsNullOrWhiteSpace(number)),
+                StringComparer.OrdinalIgnoreCase);
+            string sheetPrefix = BuildAdaptCadPtPreviewSheetPrefix(sourceToken);
+            int created = 0;
+            var createdSheets = new List<ViewSheet>();
+
+            foreach (ViewDrafting view in (views ?? new List<ViewDrafting>()).Where(v => v != null))
+            {
+                string layerToken = ExtractAdaptCadPtLayerToken(view.Name, sourceToken);
+                ViewSheet sheet = CreateShopDrawingSheetForViews(
+                    doc,
+                    view,
+                    null,
+                    titleBlockTypeId,
+                    sheetNumbers,
+                    sheetPrefix,
+                    "ADAPT CAD PT",
+                    sourceToken + " - " + layerToken,
+                    metadata);
+                if (sheet != null)
+                {
+                    createdSheets.Add(sheet);
+                    created++;
+                }
+            }
+
+            ViewSheet indexSheet = CreateAdaptCadPtIndexSheet(doc, sourceToken, titleBlockTypeId, sheetNumbers, createdSheets, metadata);
+            if (indexSheet != null)
+            {
+                created++;
+            }
+
+            return created;
+        }
+
+        private static string BuildAdaptCadPtPreviewViewName(string sourceToken, string layerName)
+        {
+            string layerToken = MakeAdaptSafeToken(layerName);
+            string name = "MHNK ADAPT CAD PT - " + sourceToken + " - SUMMARY - " + layerToken;
+            return name.Length > 120 ? name.Substring(0, 120) : name;
+        }
+
+        private static string BuildAdaptCadPtChainViewName(string sourceToken, string layerName, string mark)
+        {
+            string layerToken = MakeAdaptSafeToken(layerName);
+            string markToken = MakeAdaptSafeToken(mark);
+            string name = "MHNK ADAPT CAD PT - " + sourceToken + " - CHAIN - " + layerToken + " - " + markToken;
+            return name.Length > 120 ? name.Substring(0, 120) : name;
+        }
+
+        private static string GetAdaptCadPtPreviewViewNamePrefix(string sourceToken)
+        {
+            return "MHNK ADAPT CAD PT - " + sourceToken + " - ";
+        }
+
+        private static string BuildAdaptCadPtPreviewSheetPrefix(string sourceToken)
+        {
+            return NormalizeShopDrawingSheetPrefix("MHNK-ACAD-" + (sourceToken ?? ""), "MHNK-ACAD");
+        }
+
+        private static string GetAdaptCadPtPreviewSheetNamePrefix(string sourceToken)
+        {
+            return "ADAPT CAD PT - " + sourceToken + " - ";
+        }
+
+        private static string BuildAdaptCadPtIndexViewName(string sourceToken)
+        {
+            return "MHNK_ADAPT_CAD_PT_INDEX_" + sourceToken;
+        }
+
+        private static string GetAdaptCadPtIndexSheetName(string sourceToken)
+        {
+            return "ADAPT CAD PT INDEX - " + sourceToken;
+        }
+
+        private static string BuildAdaptCadPtModelViewName(string sourceToken)
+        {
+            return "MHNK_ADAPT_CAD_PT_MODEL_" + sourceToken;
+        }
+
+        private static string GetAdaptCadPtModelSheetName(string sourceToken)
+        {
+            return "ADAPT CAD PT MODEL - " + sourceToken;
+        }
+
+        private static string BuildAdaptCadPtTakeoffViewName(string sourceToken, int pageNumber = 1, int totalPages = 1)
+        {
+            string baseName = "MHNK_ADAPT_CAD_PT_TAKEOFF_" + sourceToken;
+            return totalPages > 1
+                ? baseName + "_P" + pageNumber.ToString(CultureInfo.InvariantCulture)
+                : baseName;
+        }
+
+        private static string GetAdaptCadPtTakeoffSheetName(string sourceToken, int pageNumber = 1, int totalPages = 1)
+        {
+            string baseName = "ADAPT CAD PT TAKEOFF - " + sourceToken;
+            return totalPages > 1
+                ? baseName + " - " + pageNumber.ToString("00", CultureInfo.InvariantCulture)
+                : baseName;
+        }
+
+        private static string ExtractAdaptCadPtLayerToken(string viewName, string sourceToken)
+        {
+            string prefix = GetAdaptCadPtPreviewViewNamePrefix(sourceToken);
+            if (!string.IsNullOrWhiteSpace(viewName) &&
+                viewName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                string suffix = viewName.Substring(prefix.Length).Trim();
+                if (!string.IsNullOrWhiteSpace(suffix))
+                {
+                    return suffix;
+                }
+            }
+
+            return MakeAdaptSafeToken(viewName);
+        }
+
+        private static void DeleteStaleAdaptCadPtPreviewViews(
+            Document doc,
+            string sourceToken,
+            ISet<string> validViewNames)
+        {
+            if (doc == null || string.IsNullOrWhiteSpace(sourceToken))
+            {
+                return;
+            }
+
+            string prefix = GetAdaptCadPtPreviewViewNamePrefix(sourceToken);
+            List<ElementId> staleIds = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewDrafting))
+                .Cast<ViewDrafting>()
+                .Where(view =>
+                    view != null &&
+                    !view.IsTemplate &&
+                    !string.IsNullOrWhiteSpace(view.Name) &&
+                    view.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+                    (validViewNames == null || !validViewNames.Contains(view.Name)))
+                .Select(view => view.Id)
+                .ToList();
+            DeleteShopDrawingElementsBestEffort(doc, staleIds);
+        }
+
+        private static int DeleteAdaptCadPtPreviewSheets(Document doc, string sourceToken)
+        {
+            if (doc == null || string.IsNullOrWhiteSpace(sourceToken))
+            {
+                return 0;
+            }
+
+            string namePrefix = GetAdaptCadPtPreviewSheetNamePrefix(sourceToken);
+            string numberPrefix = BuildAdaptCadPtPreviewSheetPrefix(sourceToken);
+            List<ElementId> sheetIds = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewSheet))
+                .Cast<ViewSheet>()
+                .Where(sheet =>
+                    sheet != null &&
+                    (
+                        (!string.IsNullOrWhiteSpace(sheet.Name) && sheet.Name.StartsWith(namePrefix, StringComparison.OrdinalIgnoreCase)) ||
+                        (!string.IsNullOrWhiteSpace(sheet.Name) && sheet.Name.StartsWith(GetAdaptCadPtIndexSheetName(sourceToken), StringComparison.OrdinalIgnoreCase)) ||
+                        (!string.IsNullOrWhiteSpace(sheet.SheetNumber) && sheet.SheetNumber.StartsWith(numberPrefix, StringComparison.OrdinalIgnoreCase))
+                    ))
+                .Select(sheet => sheet.Id)
+                .ToList();
+            return DeleteShopDrawingElementsBestEffort(doc, sheetIds);
+        }
+
+        private static int DeleteAdaptCadPtIndexViews(Document doc, string sourceToken)
+        {
+            if (doc == null || string.IsNullOrWhiteSpace(sourceToken))
+            {
+                return 0;
+            }
+
+            string indexViewName = BuildAdaptCadPtIndexViewName(sourceToken);
+            List<ElementId> ids = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewDrafting))
+                .Cast<ViewDrafting>()
+                .Where(view =>
+                    view != null &&
+                    !view.IsTemplate &&
+                    string.Equals(view.Name, indexViewName, StringComparison.OrdinalIgnoreCase))
+                .Select(view => view.Id)
+                .ToList();
+            return DeleteShopDrawingElementsBestEffort(doc, ids);
+        }
+
+        private static int DeleteAdaptCadPtTakeoffSheets(Document doc, string sourceToken)
+        {
+            if (doc == null || string.IsNullOrWhiteSpace(sourceToken))
+            {
+                return 0;
+            }
+
+            string namePrefix = GetAdaptCadPtTakeoffSheetName(sourceToken);
+            List<ElementId> ids = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewSheet))
+                .Cast<ViewSheet>()
+                .Where(sheet => sheet != null && !string.IsNullOrWhiteSpace(sheet.Name) && sheet.Name.StartsWith(namePrefix, StringComparison.OrdinalIgnoreCase))
+                .Select(sheet => sheet.Id)
+                .ToList();
+            return DeleteShopDrawingElementsBestEffort(doc, ids);
+        }
+
+        private static int DeleteAdaptCadPtTakeoffViews(Document doc, string sourceToken)
+        {
+            if (doc == null || string.IsNullOrWhiteSpace(sourceToken))
+            {
+                return 0;
+            }
+
+            string viewName = BuildAdaptCadPtTakeoffViewName(sourceToken);
+            List<ElementId> ids = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewDrafting))
+                .Cast<ViewDrafting>()
+                .Where(view =>
+                    view != null &&
+                    !view.IsTemplate &&
+                    !string.IsNullOrWhiteSpace(view.Name) &&
+                    view.Name.StartsWith(viewName, StringComparison.OrdinalIgnoreCase))
+                .Select(view => view.Id)
+                .ToList();
+            return DeleteShopDrawingElementsBestEffort(doc, ids);
+        }
+
+        private static int DeleteAdaptCadPtModelViews(Document doc, string sourceToken)
+        {
+            if (doc == null || string.IsNullOrWhiteSpace(sourceToken))
+            {
+                return 0;
+            }
+
+            string viewName = BuildAdaptCadPtModelViewName(sourceToken);
+            List<ElementId> ids = new FilteredElementCollector(doc)
+                .OfClass(typeof(View3D))
+                .Cast<View3D>()
+                .Where(view =>
+                    view != null &&
+                    !view.IsTemplate &&
+                    !string.IsNullOrWhiteSpace(view.Name) &&
+                    string.Equals(view.Name, viewName, StringComparison.OrdinalIgnoreCase))
+                .Select(view => view.Id)
+                .ToList();
+            return DeleteShopDrawingElementsBestEffort(doc, ids);
+        }
+
+        private static ViewSheet CreateAdaptCadPtIndexSheet(
+            Document doc,
+            string sourceToken,
+            ElementId titleBlockTypeId,
+            HashSet<string> sheetNumbers,
+            IList<ViewSheet> drawingSheets,
+            ShopDrawingIssueMetadata metadata)
+        {
+            if (doc == null || string.IsNullOrWhiteSpace(sourceToken) || titleBlockTypeId == null || titleBlockTypeId == ElementId.InvalidElementId)
+            {
+                return null;
+            }
+
+            IList<ViewSheet> orderedSheets = (drawingSheets ?? new List<ViewSheet>())
+                .Where(sheet => sheet != null)
+                .OrderBy(sheet => sheet.SheetNumber, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (orderedSheets.Count == 0)
+            {
+                return null;
+            }
+
+            ViewFamilyType draftingType = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewFamilyType))
+                .Cast<ViewFamilyType>()
+                .FirstOrDefault(x => x.ViewFamily == ViewFamily.Drafting);
+            if (draftingType == null)
+            {
+                return null;
+            }
+
+            TextNoteType textType = new FilteredElementCollector(doc)
+                .OfClass(typeof(TextNoteType))
+                .Cast<TextNoteType>()
+                .FirstOrDefault();
+            HashSet<string> viewNames = new HashSet<string>(
+                new FilteredElementCollector(doc)
+                    .OfClass(typeof(View))
+                    .Cast<View>()
+                    .Where(view => view != null && !string.IsNullOrWhiteSpace(view.Name))
+                    .Select(view => view.Name),
+                StringComparer.OrdinalIgnoreCase);
+
+            ViewDrafting indexView = null;
+            try
+            {
+                indexView = ViewDrafting.Create(doc, draftingType.Id);
+                if (indexView == null)
+                {
+                    return null;
+                }
+
+                indexView.Name = MakeUniqueViewName(viewNames, BuildAdaptCadPtIndexViewName(sourceToken));
+                AddShopDrawingText(doc, indexView, textType, 0.0, 0.8, DefaultText(metadata?.PackageName, "SHOP DRAWING PACKAGE"));
+                AddShopDrawingText(doc, indexView, textType, 0.0, 0.48, $"ADAPT CAD PT INDEX | {DefaultText(metadata?.Discipline, "STRUCTURAL")} | Rev: {DefaultText(metadata?.Revision, "R0")}");
+                AddShopDrawingText(doc, indexView, textType, 0.0, 0.22, $"Source: {sourceToken} | Sheets: {orderedSheets.Count} | Issue: {DefaultText(metadata?.IssueText, "FOR CONSTRUCTION REVIEW")} | Date: {DefaultText(metadata?.IssueDate, DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))}");
+                AddShopDrawingText(doc, indexView, textType, 0.0, -0.06, "Workflow: DWG/DXF import -> PT candidate layers -> native drafting views -> package sheets");
+                AddShopDrawingText(doc, indexView, textType, 0.0, -0.28, $"Prepared: {DefaultText(metadata?.PreparedBy, "-")} | Checked: {DefaultText(metadata?.CheckedBy, "-")} | Approved: {DefaultText(metadata?.ApprovedBy, "-")}");
+
+                double tableBottom = DrawShopDrawingIndexTable(doc, indexView, textType, orderedSheets, 0.0, -0.72);
+                AddShopDrawingText(doc, indexView, textType, 0.0, tableBottom - 0.30, "This package shows native Revit previews built from the strongest PT CAD layer candidates.");
+
+                ViewSheet sheet = CreateShopDrawingSheetForViews(
+                    doc,
+                    indexView,
+                    null,
+                    titleBlockTypeId,
+                    sheetNumbers,
+                    BuildAdaptCadPtPreviewSheetPrefix(sourceToken),
+                    "ADAPT CAD PT INDEX",
+                    sourceToken,
+                    metadata);
+                if (sheet == null)
+                {
+                    try
+                    {
+                        doc.Delete(indexView.Id);
+                    }
+                    catch
+                    {
+                    }
+
+                    return null;
+                }
+
+                try
+                {
+                    sheet.Name = GetAdaptCadPtIndexSheetName(sourceToken);
+                    ApplyShopDrawingSheetMetadata(doc, sheet, metadata, "ADAPT CAD PT INDEX", sourceToken);
+                }
+                catch
+                {
+                }
+
+                return sheet;
+            }
+            catch
+            {
+                if (indexView != null && indexView.Id != null && indexView.Id != ElementId.InvalidElementId)
+                {
+                    try
+                    {
+                        doc.Delete(indexView.Id);
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                return null;
+            }
+        }
+
+        private static int SyncAdaptCadPtModelReviewSheet(
+            Document doc,
+            string sourcePath,
+            ImportInstance cad,
+            ElementId titleBlockTypeId,
+            ShopDrawingIssueMetadata metadata,
+            out int createdViews)
+        {
+            createdViews = 0;
+            if (doc == null || cad == null || titleBlockTypeId == null || titleBlockTypeId == ElementId.InvalidElementId)
+            {
+                return 0;
+            }
+
+            string sourceToken = BuildAdaptProfileViewSourceToken(sourcePath);
+            DeleteAdaptCadPtModelViews(doc, sourceToken);
+
+            ViewFamilyType modelViewType = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewFamilyType))
+                .Cast<ViewFamilyType>()
+                .FirstOrDefault(x => x.ViewFamily == ViewFamily.ThreeDimensional);
+            if (modelViewType == null)
+            {
+                return 0;
+            }
+
+            HashSet<string> viewNames = new HashSet<string>(
+                new FilteredElementCollector(doc)
+                    .OfClass(typeof(View))
+                    .Cast<View>()
+                    .Where(view => view != null && !string.IsNullOrWhiteSpace(view.Name))
+                    .Select(view => view.Name),
+                StringComparer.OrdinalIgnoreCase);
+            HashSet<string> sheetNumbers = new HashSet<string>(
+                new FilteredElementCollector(doc)
+                    .OfClass(typeof(ViewSheet))
+                    .Cast<ViewSheet>()
+                    .Select(sheet => sheet?.SheetNumber ?? "")
+                    .Where(number => !string.IsNullOrWhiteSpace(number)),
+                StringComparer.OrdinalIgnoreCase);
+
+            View3D modelView = null;
+            try
+            {
+                modelView = CreateShopDrawingModelView(
+                    doc,
+                    modelViewType,
+                    viewNames,
+                    new List<Element> { cad },
+                    BuildAdaptCadPtModelViewName(sourceToken),
+                    viewScale: 25,
+                    isFormwork: false);
+                if (modelView == null)
+                {
+                    return 0;
+                }
+
+                ViewSheet sheet = CreateShopDrawingSheetForViews(
+                    doc,
+                    null,
+                    modelView,
+                    titleBlockTypeId,
+                    sheetNumbers,
+                    BuildAdaptCadPtPreviewSheetPrefix(sourceToken),
+                    "ADAPT CAD PT MODEL",
+                    sourceToken,
+                    metadata);
+                if (sheet == null)
+                {
+                    try { doc.Delete(modelView.Id); } catch { }
+                    return 0;
+                }
+
+                try
+                {
+                    sheet.Name = GetAdaptCadPtModelSheetName(sourceToken);
+                    ApplyShopDrawingSheetMetadata(doc, sheet, metadata, "ADAPT CAD PT MODEL", sourceToken);
+                }
+                catch
+                {
+                }
+
+                createdViews = 1;
+                return 1;
+            }
+            catch
+            {
+                if (modelView != null && modelView.Id != null && modelView.Id != ElementId.InvalidElementId)
+                {
+                    try { doc.Delete(modelView.Id); } catch { }
+                }
+
+                return 0;
+            }
+        }
+
+        private static int SyncAdaptCadPtTakeoffSheet(
+            Document doc,
+            string sourcePath,
+            IList<AdaptPtTakeoffRow> rows,
+            ElementId titleBlockTypeId,
+            ShopDrawingIssueMetadata metadata,
+            out int createdViews)
+        {
+            createdViews = 0;
+            if (doc == null || titleBlockTypeId == null || titleBlockTypeId == ElementId.InvalidElementId)
+            {
+                return 0;
+            }
+
+            string sourceToken = BuildAdaptProfileViewSourceToken(sourcePath);
+            DeleteAdaptCadPtTakeoffSheets(doc, sourceToken);
+            DeleteAdaptCadPtTakeoffViews(doc, sourceToken);
+            List<AdaptPtTakeoffRow> safeRows = (rows ?? new List<AdaptPtTakeoffRow>())
+                .Where(row => row != null)
+                .ToList();
+            if (safeRows.Count == 0)
+            {
+                return 0;
+            }
+
+            ViewFamilyType draftingType = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewFamilyType))
+                .Cast<ViewFamilyType>()
+                .FirstOrDefault(x => x.ViewFamily == ViewFamily.Drafting);
+            TextNoteType textType = new FilteredElementCollector(doc)
+                .OfClass(typeof(TextNoteType))
+                .Cast<TextNoteType>()
+                .FirstOrDefault();
+            if (draftingType == null)
+            {
+                return 0;
+            }
+
+            HashSet<string> viewNames = new HashSet<string>(
+                new FilteredElementCollector(doc)
+                    .OfClass(typeof(View))
+                    .Cast<View>()
+                    .Where(view => view != null && !string.IsNullOrWhiteSpace(view.Name))
+                    .Select(view => view.Name),
+                StringComparer.OrdinalIgnoreCase);
+            HashSet<string> sheetNumbers = new HashSet<string>(
+                new FilteredElementCollector(doc)
+                    .OfClass(typeof(ViewSheet))
+                    .Cast<ViewSheet>()
+                    .Select(sheet => sheet?.SheetNumber ?? "")
+                    .Where(number => !string.IsNullOrWhiteSpace(number)),
+                StringComparer.OrdinalIgnoreCase);
+            int totalPages = Math.Max(1, (int)Math.Ceiling(safeRows.Count / (double)AdaptPtTakeoffRowsPerPage));
+            int createdSheets = 0;
+            for (int pageNumber = 1; pageNumber <= totalPages; pageNumber++)
+            {
+                List<AdaptPtTakeoffRow> pageRows = safeRows
+                    .Skip((pageNumber - 1) * AdaptPtTakeoffRowsPerPage)
+                    .Take(AdaptPtTakeoffRowsPerPage)
+                    .ToList();
+                if (pageRows.Count == 0)
+                {
+                    continue;
+                }
+
+                ViewDrafting takeoffView = null;
+                try
+                {
+                    takeoffView = ViewDrafting.Create(doc, draftingType.Id);
+                    takeoffView.Name = MakeUniqueViewName(viewNames, BuildAdaptCadPtTakeoffViewName(sourceToken, pageNumber, totalPages));
+                    DrawAdaptPtTakeoffView(
+                        doc,
+                        takeoffView,
+                        textType,
+                        "ADAPT CAD PT TAKEOFF",
+                        sourceToken,
+                        pageRows,
+                        "Workflow: DWG/DXF import",
+                        pageNumber,
+                        totalPages);
+
+                    ViewSheet sheet = CreateShopDrawingSheetForViews(
+                        doc,
+                        takeoffView,
+                        null,
+                        titleBlockTypeId,
+                        sheetNumbers,
+                        BuildAdaptCadPtPreviewSheetPrefix(sourceToken),
+                        "ADAPT CAD PT TAKEOFF",
+                        sourceToken,
+                        metadata);
+                    if (sheet == null)
+                    {
+                        try { doc.Delete(takeoffView.Id); } catch { }
+                        continue;
+                    }
+
+                    try
+                    {
+                        sheet.Name = GetAdaptCadPtTakeoffSheetName(sourceToken, pageNumber, totalPages);
+                        ApplyShopDrawingSheetMetadata(doc, sheet, metadata, "ADAPT CAD PT TAKEOFF", sourceToken);
+                    }
+                    catch
+                    {
+                    }
+
+                    createdViews++;
+                    createdSheets++;
+                }
+                catch
+                {
+                    if (takeoffView != null && takeoffView.Id != null && takeoffView.Id != ElementId.InvalidElementId)
+                    {
+                        try { doc.Delete(takeoffView.Id); } catch { }
+                    }
+                }
+            }
+
+            return createdSheets;
+        }
+
+        private static bool DrawAdaptCadPtDraftingView(
+            Document doc,
+            ViewDrafting view,
+            TextNoteType textType,
+            GraphicsStyle lineStyle,
+            string sourceToken,
+            string layerName,
+            CadShapeHits hits,
+            IList<AdaptCadPreviewChain> chains)
+        {
+            List<Line> allLines = (hits?.Lines ?? new List<Line>())
+                .Where(line => line != null && line.Length > 1.0e-6)
+                .ToList();
+            if (doc == null || view == null || allLines.Count == 0)
+            {
+                return false;
+            }
+
+            const int maxPreviewSegments = 1600;
+            List<Line> previewLines = allLines.Take(maxPreviewSegments).ToList();
+            double minX = previewLines.Min(line => Math.Min(line.GetEndPoint(0).X, line.GetEndPoint(1).X));
+            double maxX = previewLines.Max(line => Math.Max(line.GetEndPoint(0).X, line.GetEndPoint(1).X));
+            double minY = previewLines.Min(line => Math.Min(line.GetEndPoint(0).Y, line.GetEndPoint(1).Y));
+            double maxY = previewLines.Max(line => Math.Max(line.GetEndPoint(0).Y, line.GetEndPoint(1).Y));
+            double rawWidth = Math.Max(MmToFeet(1200.0), maxX - minX);
+            double rawHeight = Math.Max(MmToFeet(800.0), maxY - minY);
+            double marginFt = MmToFeet(400.0);
+            double targetWidthFt = MmToFeet(9000.0);
+            double targetHeightFt = MmToFeet(4200.0);
+            double scale = Math.Max(0.02, Math.Min(8.0, Math.Min(targetWidthFt / rawWidth, targetHeightFt / rawHeight)));
+            double leftFt = marginFt;
+            double bottomFt = marginFt;
+            double displayWidthFt = rawWidth * scale;
+            double displayHeightFt = rawHeight * scale;
+            double titleYFt = bottomFt + displayHeightFt + MmToFeet(420.0);
+            double totalLengthFt = allLines.Sum(line => line.Length);
+            AdaptProfileRenderSettings settings = GetDefaultAdaptProfileRenderSettings();
+            List<AdaptCadPreviewChain> resolvedChains = (chains ?? new List<AdaptCadPreviewChain>())
+                .Where(chain => chain != null)
+                .ToList();
+            List<AdaptCadPreviewChain> topChains = resolvedChains
+                .Where(chain => chain != null && chain.Path.Count >= 2)
+                .OrderByDescending(chain => chain.LengthFt)
+                .Take(12)
+                .ToList();
+
+            foreach (Line line in previewLines)
+            {
+                XYZ p0 = line.GetEndPoint(0);
+                XYZ p1 = line.GetEndPoint(1);
+                XYZ d0 = new XYZ(leftFt + ((p0.X - minX) * scale), bottomFt + ((p0.Y - minY) * scale), 0.0);
+                XYZ d1 = new XYZ(leftFt + ((p1.X - minX) * scale), bottomFt + ((p1.Y - minY) * scale), 0.0);
+                CreateAdaptDetailCurve(doc, view, lineStyle, d0, d1, null, null, null);
+            }
+
+            AddAdaptDraftingLine(doc, view, leftFt, bottomFt, leftFt + displayWidthFt, bottomFt);
+            AddAdaptDraftingLine(doc, view, leftFt, bottomFt, leftFt, bottomFt + displayHeightFt);
+            AddAdaptDraftingLine(doc, view, leftFt, bottomFt + displayHeightFt, leftFt + displayWidthFt, bottomFt + displayHeightFt);
+            AddAdaptDraftingLine(doc, view, leftFt + displayWidthFt, bottomFt, leftFt + displayWidthFt, bottomFt + displayHeightFt);
+
+            double headerRowGapFt = MmToFeet(180.0);
+            double column2XFt = leftFt + MmToFeet(3200.0);
+            double column3XFt = leftFt + MmToFeet(6500.0);
+            AddAdaptDraftingTextBlock(
+                doc,
+                view,
+                textType,
+                leftFt,
+                titleYFt,
+                headerRowGapFt,
+                new[]
+                {
+                    "ADAPT CAD PT Preview",
+                    "Source: " + sourceToken,
+                    "Layer: " + TruncateShopDrawingCell(layerName, 58)
+                },
+                settings.HeaderPrimaryColumnWidthFt);
+            AddAdaptDraftingTextBlock(
+                doc,
+                view,
+                textType,
+                column2XFt,
+                titleYFt,
+                headerRowGapFt,
+                new[]
+                {
+                    "Segments: " + previewLines.Count.ToString(CultureInfo.InvariantCulture) + " shown / " + allLines.Count.ToString(CultureInfo.InvariantCulture) + " total",
+                    "Length: " + FormatShopDrawingLength(totalLengthFt),
+                    "Extent: " + FormatShopDrawingLength(rawWidth) + " x " + FormatShopDrawingLength(rawHeight)
+                },
+                settings.HeaderSecondaryColumnWidthFt);
+            AddAdaptDraftingTextBlock(
+                doc,
+                view,
+                textType,
+                column3XFt,
+                titleYFt,
+                headerRowGapFt,
+                new[]
+                {
+                    "Detected chains: " + resolvedChains.Count.ToString(CultureInfo.InvariantCulture),
+                    "CAD-labeled chains: " + resolvedChains.Count(chain => chain != null && chain.UsesCadLabel).ToString(CultureInfo.InvariantCulture)
+                },
+                settings.HeaderTertiaryColumnWidthFt);
+            DrawAdaptCadPreviewChainAnnotations(doc, view, textType, lineStyle, topChains, minX, minY, leftFt, bottomFt, scale);
+            DrawAdaptCadPreviewChainTable(doc, view, textType, topChains, leftFt + displayWidthFt + MmToFeet(700.0), titleYFt);
+            if (allLines.Count > previewLines.Count)
+            {
+                AddAdaptDraftingTextBlock(
+                    doc,
+                    view,
+                    textType,
+                    leftFt + (displayWidthFt * 0.5),
+                    bottomFt - MmToFeet(260.0),
+                    headerRowGapFt,
+                    new[]
+                    {
+                        "Preview trimmed to first " + maxPreviewSegments.ToString(CultureInfo.InvariantCulture) + " segments for sheet performance."
+                    },
+                    settings.FooterNoteWidthFt,
+                    AdaptDraftingTextAnchor.Center);
+            }
+
+            return true;
+        }
+
+        private static List<AdaptCadPreviewLayerPackage> BuildAdaptCadPreviewLayerPackages(
+            Document doc,
+            ImportInstance cad,
+            IEnumerable<string> layerNames,
+            string markPrefix,
+            int markStartNumber,
+            int markDigits,
+            AdaptPtShopMarkSequenceMode sequenceMode,
+            bool preserveCadShopMarks)
+        {
+            var packages = new List<AdaptCadPreviewLayerPackage>();
+            if (doc == null || cad == null)
+            {
+                return packages;
+            }
+
+            var usedMarks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int nextAutoMark = GetAdaptShopMarkStartNumber(markStartNumber);
+            foreach (string layerName in (layerNames ?? Enumerable.Empty<string>())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                CadShapeHits hits = ExtractShapesFromLayer(doc, cad, layerName);
+                if (hits?.Lines == null || hits.Lines.Count == 0)
+                {
+                    continue;
+                }
+
+                List<CadTextLabel> labels = CollectCadTextLabels(doc, cad, layerName);
+                List<AdaptCadPreviewChain> chains = BuildAdaptCadPreviewChains(
+                    hits.Lines,
+                    labels,
+                    markPrefix,
+                    markStartNumber,
+                    markDigits,
+                    sequenceMode,
+                    preserveCadShopMarks,
+                    usedMarks,
+                    ref nextAutoMark);
+                packages.Add(new AdaptCadPreviewLayerPackage
+                {
+                    LayerName = layerName,
+                    Hits = hits,
+                    Chains = chains
+                });
+            }
+
+            return packages;
+        }
+
+        private static List<AdaptCadPreviewChain> BuildAdaptCadPreviewChains(
+            IEnumerable<Line> lines,
+            List<CadTextLabel> labels,
+            string markPrefix,
+            int markStartNumber,
+            int markDigits)
+        {
+            var usedMarks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int nextAutoMark = GetAdaptShopMarkStartNumber(markStartNumber);
+            return BuildAdaptCadPreviewChains(
+                lines,
+                labels,
+                markPrefix,
+                markStartNumber,
+                markDigits,
+                AdaptPtShopMarkSequenceMode.SourceAndName,
+                preserveCadShopMarks: true,
+                usedMarks,
+                ref nextAutoMark);
+        }
+
+        private static List<AdaptCadPreviewChain> BuildAdaptCadPreviewChains(
+            IEnumerable<Line> lines,
+            List<CadTextLabel> labels,
+            string markPrefix,
+            int markStartNumber,
+            int markDigits,
+            AdaptPtShopMarkSequenceMode sequenceMode,
+            bool preserveCadShopMarks,
+            ISet<string> usedMarks,
+            ref int nextAutoMark)
+        {
+            List<AdaptPathSegment> segments = (lines ?? Enumerable.Empty<Line>())
+                .Where(line => line != null && line.Length > 1.0e-6)
+                .Select(line => new AdaptPathSegment(line.GetEndPoint(0), line.GetEndPoint(1)))
+                .ToList();
+            if (segments.Count == 0)
+            {
+                return new List<AdaptCadPreviewChain>();
+            }
+
+            List<List<XYZ>> chains = BuildAdaptPathChains(segments);
+            List<CadTextLabel> availableLabels = (labels ?? new List<CadTextLabel>())
+                .Where(label => label != null && !string.IsNullOrWhiteSpace(label.Text) && label.Position != null)
+                .ToList();
+            ISet<string> markRegistry = usedMarks ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var results = new List<AdaptCadPreviewChain>();
+
+            foreach (List<XYZ> chainPoints in chains)
+            {
+                List<XYZ> path = CompactAdaptPoints(chainPoints ?? new List<XYZ>());
+                if (path.Count < 2)
+                {
+                    continue;
+                }
+
+                string cadLabel = preserveCadShopMarks
+                    ? TryMatchAdaptCadChainLabel(path, availableLabels, markRegistry)
+                    : null;
+                string mark = cadLabel;
+                bool usesCadLabel = !string.IsNullOrWhiteSpace(cadLabel);
+                if (usesCadLabel)
+                {
+                    markRegistry.Add(mark);
+                }
+                results.Add(new AdaptCadPreviewChain
+                {
+                    Mark = mark,
+                    OriginalCadLabel = cadLabel ?? "",
+                    Signature = BuildAdaptPolylineSignature(path, includeZ: false),
+                    Path = path,
+                    SegmentCount = Math.Max(1, path.Count - 1),
+                    LengthFt = GetAdaptPolylineLength(path),
+                    Anchor = ComputeAdaptCadChainAnchor(path),
+                    UsesCadLabel = usesCadLabel
+                });
+            }
+
+            List<AdaptCadPreviewChain> ordered = OrderAdaptCadPreviewChains(results, sequenceMode);
+            int nextSequence = GetAdaptShopMarkStartNumber(markStartNumber);
+            foreach (AdaptCadPreviewChain chain in ordered.Where(chain => chain != null))
+            {
+                chain.SequenceIndex = nextSequence;
+                nextSequence++;
+                if (!chain.UsesCadLabel)
+                {
+                    chain.Mark = BuildNextAdaptShopMark(markRegistry, ref nextAutoMark, markPrefix, markDigits);
+                }
+            }
+
+            return ordered;
+        }
+
+        private static string TryMatchAdaptCadChainLabel(
+            IList<XYZ> path,
+            List<CadTextLabel> labels,
+            ISet<string> usedMarks)
+        {
+            if (path == null || path.Count < 2 || labels == null || labels.Count == 0)
+            {
+                return null;
+            }
+
+            int bestIndex = -1;
+            double bestDistance = double.MaxValue;
+            for (int i = 0; i < labels.Count; i++)
+            {
+                CadTextLabel label = labels[i];
+                if (label == null || string.IsNullOrWhiteSpace(label.Text) || label.Position == null)
+                {
+                    continue;
+                }
+
+                string normalized = NormalizeAdaptCadChainMark(label.Text);
+                if (string.IsNullOrWhiteSpace(normalized) || (usedMarks != null && usedMarks.Contains(normalized)))
+                {
+                    continue;
+                }
+
+                double distance = GetAdaptCadDistanceToPolyline(label.Position, path);
+                if (distance <= MmToFeet(900.0) && distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    bestIndex = i;
+                }
+            }
+
+            if (bestIndex < 0)
+            {
+                return null;
+            }
+
+            string mark = NormalizeAdaptCadChainMark(labels[bestIndex].Text);
+            labels.RemoveAt(bestIndex);
+            return mark;
+        }
+
+        private static string NormalizeAdaptCadChainMark(string value)
+        {
+            string text = Regex.Replace(value ?? "", @"\s+", " ").Trim();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return "";
+            }
+
+            if (text.Length > 24)
+            {
+                text = text.Substring(0, 24).Trim();
+            }
+
+            return text;
+        }
+
+        private static double GetAdaptCadDistanceToPolyline(XYZ point, IList<XYZ> path)
+        {
+            if (point == null || path == null || path.Count < 2)
+            {
+                return double.MaxValue;
+            }
+
+            double best = double.MaxValue;
+            for (int i = 1; i < path.Count; i++)
+            {
+                try
+                {
+                    Line segment = Line.CreateBound(path[i - 1], path[i]);
+                    best = Math.Min(best, DistancePointToLine2D(point, segment));
+                }
+                catch
+                {
+                }
+            }
+
+            return best;
+        }
+
+        private static XYZ ComputeAdaptCadChainAnchor(IList<XYZ> path)
+        {
+            if (path == null || path.Count == 0)
+            {
+                return XYZ.Zero;
+            }
+
+            double target = GetAdaptPolylineLength(path) * 0.5;
+            double accumulated = 0.0;
+            for (int i = 1; i < path.Count; i++)
+            {
+                XYZ a = path[i - 1];
+                XYZ b = path[i];
+                double length = a.DistanceTo(b);
+                if (length < 1.0e-9)
+                {
+                    continue;
+                }
+
+                if (accumulated + length >= target)
+                {
+                    double ratio = (target - accumulated) / length;
+                    return new XYZ(
+                        a.X + ((b.X - a.X) * ratio),
+                        a.Y + ((b.Y - a.Y) * ratio),
+                        a.Z + ((b.Z - a.Z) * ratio));
+                }
+
+                accumulated += length;
+            }
+
+            return path[path.Count / 2];
+        }
+
+        private static void DrawAdaptCadPreviewChainAnnotations(
+            Document doc,
+            ViewDrafting view,
+            TextNoteType textType,
+            GraphicsStyle lineStyle,
+            IList<AdaptCadPreviewChain> chains,
+            double minX,
+            double minY,
+            double leftFt,
+            double bottomFt,
+            double scale)
+        {
+            if (doc == null || view == null || textType == null || chains == null || chains.Count == 0)
+            {
+                return;
+            }
+
+            double radiusFt = MmToFeet(180.0);
+            double baseOffsetFt = MmToFeet(380.0);
+            double rowGapFt = MmToFeet(240.0);
+            double minVerticalSeparationFt = MmToFeet(220.0);
+            double horizontalInfluenceFt = MmToFeet(1600.0);
+            double textRowGapFt = MmToFeet(180.0);
+            double textVerticalSeparationFt = MmToFeet(180.0);
+            var placedCenters = new List<XYZ>();
+            var rightTextCenters = new List<XYZ>();
+            var leftTextCenters = new List<XYZ>();
+            double minDisplayX = leftFt + ((chains.Min(c => c?.Anchor?.X ?? minX) - minX) * scale);
+            double maxDisplayX = leftFt + ((chains.Max(c => c?.Anchor?.X ?? minX) - minX) * scale);
+            double maxDisplayY = bottomFt + ((chains.Max(c => c?.Anchor?.Y ?? minY) - minY) * scale);
+            double planMidX = (minDisplayX + maxDisplayX) * 0.5;
+            double bubbleRailY = maxDisplayY + baseOffsetFt;
+            double leftRailX = minDisplayX - MmToFeet(1200.0);
+            double rightRailX = maxDisplayX + MmToFeet(420.0);
+            AddAdaptDraftingLine(doc, view, minDisplayX - MmToFeet(180.0), bubbleRailY, maxDisplayX + MmToFeet(180.0), bubbleRailY);
+
+            for (int i = 0; i < chains.Count; i++)
+            {
+                AdaptCadPreviewChain chain = chains[i];
+                if (chain == null || chain.Anchor == null || string.IsNullOrWhiteSpace(chain.Mark))
+                {
+                    continue;
+                }
+
+                XYZ anchor = new XYZ(
+                    leftFt + ((chain.Anchor.X - minX) * scale),
+                    bottomFt + ((chain.Anchor.Y - minY) * scale),
+                    0.0);
+                XYZ bubbleCenter = BuildAdaptAlignedBubbleCenter(
+                    anchor,
+                    anchor.X,
+                    bubbleRailY,
+                    rowGapFt,
+                    minVerticalSeparationFt,
+                    horizontalInfluenceFt,
+                    placedCenters);
+                placedCenters.Add(bubbleCenter);
+                DrawAdaptBubble(doc, view, textType, lineStyle, bubbleCenter, radiusFt, (i + 1).ToString(CultureInfo.InvariantCulture));
+                bool placeRight = bubbleCenter.X > planMidX;
+                double preferredTextX = placeRight ? rightRailX : leftRailX;
+                double preferredTextY = bubbleCenter.Y + MmToFeet(60.0);
+                IList<XYZ> labelCenters = placeRight ? rightTextCenters : leftTextCenters;
+                XYZ textCenter = BuildAdaptAlignedTextCenter(
+                    new XYZ(bubbleCenter.X, bubbleCenter.Y, 0.0),
+                    preferredTextX,
+                    preferredTextY,
+                    textRowGapFt,
+                    textVerticalSeparationFt,
+                    horizontalInfluenceFt,
+                    labelCenters);
+                labelCenters.Add(textCenter);
+                AddAdaptDraftingText(
+                    doc,
+                    view,
+                    textType,
+                    textCenter.X,
+                    textCenter.Y,
+                    TruncateShopDrawingCell(chain.Mark, 18),
+                    placeRight ? AdaptDraftingTextAnchor.Left : AdaptDraftingTextAnchor.Right);
+                CreateAdaptDetailCurve(
+                    doc,
+                    view,
+                    lineStyle,
+                    bubbleCenter,
+                    new XYZ(textCenter.X, textCenter.Y, 0.0),
+                    null,
+                    null,
+                    null);
+                CreateAdaptDetailCurve(doc, view, lineStyle, bubbleCenter, anchor, null, null, null);
+            }
+        }
+
+        private static void DrawAdaptCadPreviewChainTable(
+            Document doc,
+            ViewDrafting view,
+            TextNoteType textType,
+            IList<AdaptCadPreviewChain> chains,
+            double xFt,
+            double topYFt)
+        {
+            if (doc == null || view == null || textType == null || chains == null || chains.Count == 0)
+            {
+                return;
+            }
+
+            double rowGapFt = MmToFeet(165.0);
+            double blockGapFt = MmToFeet(90.0);
+            double currentY = topYFt;
+            AddAdaptDraftingText(doc, view, textType, xFt, currentY, "Detected PT Chains");
+            currentY -= (rowGapFt + blockGapFt);
+            int visibleRows = Math.Min(8, chains.Count);
+            for (int i = 0; i < visibleRows; i++)
+            {
+                AdaptCadPreviewChain chain = chains[i];
+                if (chain == null)
+                {
+                    continue;
+                }
+
+                string line1 =
+                    (chain.SequenceIndex > 0 ? "#" + chain.SequenceIndex.ToString(CultureInfo.InvariantCulture) + " " : "") +
+                    (chain.UsesCadLabel ? "CAD " : "AUTO ") +
+                    TruncateShopDrawingCell(chain.Mark, 16);
+                string line2 =
+                    "L=" + FormatShopDrawingLength(chain.LengthFt) +
+                    " | Seg=" + chain.SegmentCount.ToString(CultureInfo.InvariantCulture);
+                currentY = AddAdaptDraftingTextBlock(
+                    doc,
+                    view,
+                    textType,
+                    xFt,
+                    currentY,
+                    rowGapFt,
+                    new[]
+                    {
+                        line1,
+                        line2
+                    },
+                    MmToFeet(1900.0)) - blockGapFt;
+            }
+
+            if (chains.Count > visibleRows)
+            {
+                AddAdaptDraftingText(
+                    doc,
+                    view,
+                    textType,
+                    xFt,
+                    currentY,
+                    "Showing " + visibleRows.ToString(CultureInfo.InvariantCulture) + " of " + chains.Count.ToString(CultureInfo.InvariantCulture) + " chain(s).");
+            }
+        }
+
+        private static bool DrawAdaptCadPtChainDraftingView(
+            Document doc,
+            ViewDrafting view,
+            TextNoteType textType,
+            GraphicsStyle lineStyle,
+            string sourceToken,
+            string layerName,
+            AdaptCadPreviewChain chain)
+        {
+            List<XYZ> path = chain?.Path ?? new List<XYZ>();
+            if (doc == null || view == null || textType == null || path.Count < 2)
+            {
+                return false;
+            }
+
+            double minX = path.Min(point => point.X);
+            double maxX = path.Max(point => point.X);
+            double minY = path.Min(point => point.Y);
+            double maxY = path.Max(point => point.Y);
+            double rawWidth = Math.Max(MmToFeet(800.0), maxX - minX);
+            double rawHeight = Math.Max(MmToFeet(500.0), maxY - minY);
+            double marginFt = MmToFeet(420.0);
+            double targetWidthFt = MmToFeet(7200.0);
+            double targetHeightFt = MmToFeet(2200.0);
+            double scale = Math.Max(0.05, Math.Min(10.0, Math.Min(targetWidthFt / rawWidth, targetHeightFt / rawHeight)));
+            double leftFt = marginFt;
+            double bottomFt = marginFt;
+            double displayWidthFt = rawWidth * scale;
+            double displayHeightFt = rawHeight * scale;
+            double titleYFt = bottomFt + displayHeightFt + MmToFeet(500.0);
+            AdaptProfileRenderSettings settings = GetDefaultAdaptProfileRenderSettings();
+            var displayPath = new List<XYZ>();
+            foreach (XYZ point in path)
+            {
+                displayPath.Add(new XYZ(
+                    leftFt + ((point.X - minX) * scale),
+                    bottomFt + ((point.Y - minY) * scale),
+                    0.0));
+            }
+
+            DrawAdaptPolyline(doc, view, lineStyle, displayPath, null, null, null);
+            AddAdaptDraftingLine(doc, view, leftFt, bottomFt, leftFt + displayWidthFt, bottomFt);
+            AddAdaptDraftingLine(doc, view, leftFt, bottomFt, leftFt, bottomFt + displayHeightFt);
+            AddAdaptDraftingLine(doc, view, leftFt, bottomFt + displayHeightFt, leftFt + displayWidthFt, bottomFt + displayHeightFt);
+            AddAdaptDraftingLine(doc, view, leftFt + displayWidthFt, bottomFt, leftFt + displayWidthFt, bottomFt + displayHeightFt);
+
+            DrawAdaptProfileShopMarkBubbles(
+                doc,
+                view,
+                textType,
+                lineStyle,
+                settings,
+                displayPath,
+                chain.Mark,
+                titleYFt - MmToFeet(120.0));
+            DrawAdaptCadChainDimensionPackage(
+                doc,
+                view,
+                textType,
+                settings,
+                path,
+                displayPath,
+                leftFt,
+                bottomFt,
+                displayWidthFt,
+                displayHeightFt,
+                rawWidth,
+                rawHeight,
+                out double footerAnchorY);
+
+            double headerRowGapFt = settings?.HeaderLineGapFt ?? MmToFeet(180.0);
+            var leftHeaderLines = new List<string>
+            {
+                "ADAPT CAD PT Chain",
+                "Mark: " + TruncateShopDrawingCell(chain.Mark, 24),
+                "Layer: " + TruncateShopDrawingCell(layerName, 42)
+            };
+            if (!string.IsNullOrWhiteSpace(chain.OriginalCadLabel) &&
+                !string.Equals(chain.OriginalCadLabel, chain.Mark, StringComparison.OrdinalIgnoreCase))
+            {
+                leftHeaderLines.Add("Original CAD label: " + TruncateShopDrawingCell(chain.OriginalCadLabel, 24));
+            }
+
+            double leftHeaderBottomY = AddAdaptDraftingTextBlock(
+                doc,
+                view,
+                textType,
+                leftFt,
+                titleYFt,
+                headerRowGapFt,
+                leftHeaderLines,
+                settings.HeaderPrimaryColumnWidthFt);
+            double middleHeaderBottomY = AddAdaptDraftingTextBlock(
+                doc,
+                view,
+                textType,
+                leftFt + MmToFeet(3000.0),
+                titleYFt,
+                headerRowGapFt,
+                new[]
+                {
+                    "Source: " + sourceToken,
+                    "Length: " + FormatShopDrawingLength(chain.LengthFt),
+                    "Segments: " + chain.SegmentCount.ToString(CultureInfo.InvariantCulture),
+                    "Sequence: " + chain.SequenceIndex.ToString(CultureInfo.InvariantCulture)
+                },
+                settings.HeaderSecondaryColumnWidthFt);
+            double rightHeaderBottomY = AddAdaptDraftingTextBlock(
+                doc,
+                view,
+                textType,
+                leftFt + MmToFeet(6100.0),
+                titleYFt,
+                headerRowGapFt,
+                new[]
+                {
+                    "Extent: " + FormatShopDrawingLength(rawWidth) + " x " + FormatShopDrawingLength(rawHeight),
+                    chain.UsesCadLabel ? "Mark source: CAD label" : "Mark source: Auto generated"
+                },
+                settings.HeaderTertiaryColumnWidthFt);
+            double footerNoteY = footerAnchorY - (settings?.HeaderNoteGapFt ?? MmToFeet(260.0));
+            AddAdaptDraftingTextBlock(
+                doc,
+                view,
+                textType,
+                leftFt + (displayWidthFt * 0.5),
+                footerNoteY,
+                headerRowGapFt,
+                new[]
+                {
+                    "Detail view isolated from DWG / DXF CAD chain detection."
+                },
+                settings.FooterNoteWidthFt,
+                AdaptDraftingTextAnchor.Center);
+            return true;
+        }
+
+        private static void DrawAdaptCadChainDimensionPackage(
+            Document doc,
+            ViewDrafting view,
+            TextNoteType textType,
+            AdaptProfileRenderSettings settings,
+            IList<XYZ> sourcePath,
+            IList<XYZ> displayPath,
+            double leftFt,
+            double bottomFt,
+            double displayWidthFt,
+            double displayHeightFt,
+            double rawWidthFt,
+            double rawHeightFt,
+            out double footerAnchorY)
+        {
+            footerAnchorY = bottomFt - MmToFeet(260.0);
+            if (doc == null || view == null || textType == null || sourcePath == null || displayPath == null)
+            {
+                return;
+            }
+
+            if (sourcePath.Count < 2 || displayPath.Count != sourcePath.Count)
+            {
+                return;
+            }
+
+            double extentOffsetFt = MmToFeet(260.0);
+            AddSelectedElementDimensionLine(
+                doc,
+                view,
+                textType,
+                leftFt,
+                bottomFt - extentOffsetFt,
+                leftFt + displayWidthFt,
+                bottomFt - extentOffsetFt,
+                "X " + FormatShopDrawingLength(rawWidthFt));
+            AddSelectedElementDimensionLine(
+                doc,
+                view,
+                textType,
+                leftFt - extentOffsetFt,
+                bottomFt,
+                leftFt - extentOffsetFt,
+                bottomFt + displayHeightFt,
+                "Y " + FormatShopDrawingLength(rawHeightFt));
+
+            List<double> stations = BuildAdaptProfileStations(sourcePath);
+            if (stations.Count != sourcePath.Count || stations.Count < 2)
+            {
+                return;
+            }
+
+            List<int> keyIndexes = BuildAdaptCadChainDimensionIndexes(sourcePath);
+            if (keyIndexes.Count < 2)
+            {
+                return;
+            }
+
+            double totalLengthFt = Math.Max(1.0e-6, stations.Last() - stations.First());
+            double chainY = bottomFt - (settings?.DimensionChainOffsetFt ?? MmToFeet(700.0));
+            for (int i = 1; i < keyIndexes.Count; i++)
+            {
+                int aIndex = keyIndexes[i - 1];
+                int bIndex = keyIndexes[i];
+                double x0 = leftFt + (((stations[aIndex] - stations.First()) / totalLengthFt) * displayWidthFt);
+                double x1 = leftFt + (((stations[bIndex] - stations.First()) / totalLengthFt) * displayWidthFt);
+                AddSelectedElementDimensionLine(
+                    doc,
+                    view,
+                    textType,
+                    x0,
+                    chainY,
+                    x1,
+                    chainY,
+                    FormatShopDrawingLength(stations[bIndex] - stations[aIndex]));
+            }
+
+            double overallY = chainY - (settings?.DimensionChainRowGapFt ?? MmToFeet(260.0));
+            AddSelectedElementDimensionLine(
+                doc,
+                view,
+                textType,
+                leftFt,
+                overallY,
+                leftFt + displayWidthFt,
+                overallY,
+                "Overall " + FormatShopDrawingLength(totalLengthFt));
+            footerAnchorY = overallY;
+        }
+
+        private static List<int> BuildAdaptCadChainDimensionIndexes(IList<XYZ> path)
+        {
+            var indexes = new HashSet<int>();
+            if (path == null || path.Count < 2)
+            {
+                return indexes.OrderBy(x => x).ToList();
+            }
+
+            indexes.Add(0);
+            indexes.Add(path.Count - 1);
+            for (int i = 1; i < path.Count - 1; i++)
+            {
+                XYZ a = path[i - 1];
+                XYZ b = path[i];
+                XYZ c = path[i + 1];
+                XYZ ab = b.Subtract(a);
+                XYZ bc = c.Subtract(b);
+                if (ab.GetLength() < 1.0e-9 || bc.GetLength() < 1.0e-9)
+                {
+                    continue;
+                }
+
+                double dot = ab.Normalize().DotProduct(bc.Normalize());
+                dot = Math.Max(-1.0, Math.Min(1.0, dot));
+                double angleDeg = Math.Acos(dot) * 180.0 / Math.PI;
+                if (angleDeg >= 12.0)
+                {
+                    indexes.Add(i);
+                }
+            }
+
+            List<int> ordered = indexes.OrderBy(x => x).ToList();
+            const int maxKeyPoints = 6;
+            if (ordered.Count > maxKeyPoints)
+            {
+                var reduced = new List<int> { ordered.First() };
+                for (int i = 1; i < maxKeyPoints - 1; i++)
+                {
+                    int pick = (int)Math.Round(i * (ordered.Count - 1.0) / (maxKeyPoints - 1.0));
+                    reduced.Add(ordered[Math.Max(1, Math.Min(ordered.Count - 2, pick))]);
+                }
+
+                reduced.Add(ordered.Last());
+                ordered = reduced.Distinct().OrderBy(x => x).ToList();
+            }
+
+            return ordered;
+        }
+
+        private static List<AdaptProfilePackageItem> BuildAdaptProfilePackageItems(
+            IEnumerable<AdaptTendonProfileSegmentPayload> segments,
+            string markPrefix,
+            int markStartNumber,
+            int markDigits,
+            AdaptPtShopMarkSequenceMode sequenceMode)
+        {
+            List<AdaptProfilePackageItem> items = GroupAdaptTendonSegments(segments)
+                .Select(group =>
+                {
+                    List<AdaptTendonProfileSegmentPayload> groupSegments = group
+                        .Where(segment => segment != null)
+                        .ToList();
+                    List<XYZ> path = BuildAdaptOrderedPathPoints(groupSegments);
+                    if (groupSegments.Count == 0 || path.Count < 2)
+                    {
+                        return null;
+                    }
+
+                    return new AdaptProfilePackageItem
+                    {
+                        GroupKey = group.Key ?? "ADAPT Tendon",
+                        Segments = groupSegments,
+                        Path = path,
+                        LengthFt = GetAdaptPolylineLength(path),
+                        Signature = BuildAdaptPolylineSignature(path, includeZ: true),
+                        Anchor = ComputeAdaptPathAnchor(path)
+                    };
+                })
+                .Where(item => item != null)
+                .ToList();
+
+            items = OrderAdaptProfilePackageItems(items, sequenceMode);
+
+            int nextMarkNumber = GetAdaptShopMarkStartNumber(markStartNumber);
+            for (int i = 0; i < items.Count; i++)
+            {
+                items[i].ShopMark = BuildAdaptShopMark(nextMarkNumber, markPrefix, markDigits);
+                items[i].SequenceIndex = nextMarkNumber;
+                nextMarkNumber++;
+            }
+
+            return items;
+        }
+
+        private static List<AdaptPtTakeoffRow> BuildAdaptProfileTakeoffRows(IEnumerable<AdaptProfilePackageItem> items)
+        {
+            var rows = new List<AdaptPtTakeoffRow>();
+            foreach (AdaptProfilePackageItem item in (items ?? Enumerable.Empty<AdaptProfilePackageItem>()).Where(x => x != null))
+            {
+                if (item.Path == null || item.Path.Count < 2)
+                {
+                    continue;
+                }
+
+                AdaptTendonProfileSegmentPayload metadataSegment = item.Segments.FirstOrDefault();
+                double diameterFt = GetAdaptProfileBandDiameterFt(item.Path, item.Segments);
+                rows.Add(new AdaptPtTakeoffRow
+                {
+                    SequenceIndex = item.SequenceIndex,
+                    ShopMark = item.ShopMark,
+                    Mark = !string.IsNullOrWhiteSpace(metadataSegment?.TendonName)
+                        ? metadataSegment.TendonName.Trim()
+                        : (!string.IsNullOrWhiteSpace(metadataSegment?.ProfileName) ? metadataSegment.ProfileName.Trim() : "ADAPT Tendon"),
+                    OriginalMark = metadataSegment?.TendonName ?? "",
+                    MarkSource = "Auto",
+                    Type = InferAdaptTendonType(item.Segments),
+                    Duct = (diameterFt * 304.8).ToString("0.#", CultureInfo.InvariantCulture) + " mm",
+                    Source = BuildAdaptMetadataLabel(metadataSegment),
+                    Segments = Math.Max(1, item.Path.Count - 1),
+                    Strands = TryExtractAdaptStrandCount(item.Segments),
+                    LengthFt = item.LengthFt
+                });
+            }
+
+            return rows;
+        }
+
+        private static List<AdaptPtTakeoffRow> BuildAdaptCadPtTakeoffRows(
+            IList<AdaptCadPreviewLayerPackage> layerPackages)
+        {
+            var rows = new List<AdaptPtTakeoffRow>();
+            foreach (AdaptCadPreviewLayerPackage layerPackage in (layerPackages ?? new List<AdaptCadPreviewLayerPackage>())
+                .Where(x => x != null && !string.IsNullOrWhiteSpace(x.LayerName)))
+            {
+                foreach (AdaptCadPreviewChain chain in (layerPackage.Chains ?? new List<AdaptCadPreviewChain>())
+                    .Where(chain => chain != null && chain.Path.Count >= 2)
+                    .OrderByDescending(chain => chain.LengthFt))
+                {
+                    rows.Add(new AdaptPtTakeoffRow
+                    {
+                        SequenceIndex = chain.SequenceIndex,
+                        ShopMark = chain.Mark,
+                        Mark = chain.Mark,
+                        OriginalMark = chain.OriginalCadLabel,
+                        MarkSource = chain.UsesCadLabel ? "CAD label" : "Auto",
+                        Type = chain.UsesCadLabel ? "CAD labeled chain" : "Auto chain",
+                        Duct = "-",
+                        Source = layerPackage.LayerName,
+                        Segments = chain.SegmentCount,
+                        Strands = null,
+                        LengthFt = chain.LengthFt
+                    });
+                }
+            }
+
+            return rows
+                .OrderBy(row => row.SequenceIndex > 0 ? row.SequenceIndex : int.MaxValue)
+                .ThenBy(row => row.Source, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(row => row.ShopMark, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static List<AdaptProfilePackageItem> OrderAdaptProfilePackageItems(
+            IEnumerable<AdaptProfilePackageItem> items,
+            AdaptPtShopMarkSequenceMode sequenceMode)
+        {
+            IEnumerable<AdaptProfilePackageItem> query = (items ?? Enumerable.Empty<AdaptProfilePackageItem>())
+                .Where(item => item != null);
+            switch (sequenceMode)
+            {
+                case AdaptPtShopMarkSequenceMode.LeftToRight:
+                    query = query
+                        .OrderBy(item => item.Anchor.X)
+                        .ThenBy(item => item.Anchor.Y)
+                        .ThenBy(item => item.Signature ?? "", StringComparer.OrdinalIgnoreCase);
+                    break;
+                case AdaptPtShopMarkSequenceMode.BottomToTop:
+                    query = query
+                        .OrderBy(item => item.Anchor.Y)
+                        .ThenBy(item => item.Anchor.X)
+                        .ThenBy(item => item.Signature ?? "", StringComparer.OrdinalIgnoreCase);
+                    break;
+                case AdaptPtShopMarkSequenceMode.TopToBottom:
+                    query = query
+                        .OrderByDescending(item => item.Anchor.Y)
+                        .ThenBy(item => item.Anchor.X)
+                        .ThenBy(item => item.Signature ?? "", StringComparer.OrdinalIgnoreCase);
+                    break;
+                case AdaptPtShopMarkSequenceMode.LongToShort:
+                    query = query
+                        .OrderByDescending(item => item.LengthFt)
+                        .ThenBy(item => item.Anchor.Y)
+                        .ThenBy(item => item.Anchor.X)
+                        .ThenBy(item => item.Signature ?? "", StringComparer.OrdinalIgnoreCase);
+                    break;
+                default:
+                    query = query
+                        .OrderBy(item => BuildAdaptMetadataLabel(item.Segments.FirstOrDefault()) ?? item.GroupKey ?? "", StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(item => item.Signature ?? "", StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(item => item.LengthFt);
+                    break;
+            }
+
+            return query.ToList();
+        }
+
+        private static List<AdaptCadPreviewChain> OrderAdaptCadPreviewChains(
+            IEnumerable<AdaptCadPreviewChain> chains,
+            AdaptPtShopMarkSequenceMode sequenceMode)
+        {
+            IEnumerable<AdaptCadPreviewChain> query = (chains ?? Enumerable.Empty<AdaptCadPreviewChain>())
+                .Where(chain => chain != null);
+            switch (sequenceMode)
+            {
+                case AdaptPtShopMarkSequenceMode.LeftToRight:
+                    query = query
+                        .OrderBy(chain => chain.Anchor.X)
+                        .ThenBy(chain => chain.Anchor.Y)
+                        .ThenBy(chain => chain.Signature ?? "", StringComparer.OrdinalIgnoreCase);
+                    break;
+                case AdaptPtShopMarkSequenceMode.BottomToTop:
+                    query = query
+                        .OrderBy(chain => chain.Anchor.Y)
+                        .ThenBy(chain => chain.Anchor.X)
+                        .ThenBy(chain => chain.Signature ?? "", StringComparer.OrdinalIgnoreCase);
+                    break;
+                case AdaptPtShopMarkSequenceMode.TopToBottom:
+                    query = query
+                        .OrderByDescending(chain => chain.Anchor.Y)
+                        .ThenBy(chain => chain.Anchor.X)
+                        .ThenBy(chain => chain.Signature ?? "", StringComparer.OrdinalIgnoreCase);
+                    break;
+                case AdaptPtShopMarkSequenceMode.LongToShort:
+                    query = query
+                        .OrderByDescending(chain => chain.LengthFt)
+                        .ThenBy(chain => chain.Anchor.Y)
+                        .ThenBy(chain => chain.Anchor.X)
+                        .ThenBy(chain => chain.Signature ?? "", StringComparer.OrdinalIgnoreCase);
+                    break;
+                default:
+                    query = query
+                        .OrderBy(chain => chain.UsesCadLabel ? 0 : 1)
+                        .ThenBy(chain => chain.UsesCadLabel ? chain.Mark : "", StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(chain => chain.Signature ?? "", StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(chain => chain.LengthFt);
+                    break;
+            }
+
+            return query.ToList();
+        }
+
+        private static XYZ ComputeAdaptPathAnchor(IList<XYZ> path)
+        {
+            if (path == null || path.Count == 0)
+            {
+                return XYZ.Zero;
+            }
+
+            double minX = path.Min(point => point.X);
+            double maxX = path.Max(point => point.X);
+            double minY = path.Min(point => point.Y);
+            double maxY = path.Max(point => point.Y);
+            double minZ = path.Min(point => point.Z);
+            double maxZ = path.Max(point => point.Z);
+            return new XYZ(
+                0.5 * (minX + maxX),
+                0.5 * (minY + maxY),
+                0.5 * (minZ + maxZ));
+        }
+
+        private static PtImportJsonDocument BuildAdaptDirectPtImportSnapshotDocument(
+            string sourcePath,
+            AdaptTendonImportMode importMode,
+            IEnumerable<AdaptTendonProfileSegmentPayload> segments,
+            IEnumerable<AdaptProfilePackageItem> packageItems,
+            AdaptPtShopMarkSequenceMode sequenceMode)
+        {
+            PtImportJsonDocument document = PtJsonMapper.CreateFromAdaptSegments(sourcePath, importMode, segments);
+            if (document == null)
+            {
+                document = new PtImportJsonDocument();
+            }
+
+            var markLookup = (packageItems ?? Enumerable.Empty<AdaptProfilePackageItem>())
+                .Where(item => item != null && !string.IsNullOrWhiteSpace(item.GroupKey))
+                .GroupBy(item => item.GroupKey, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Select(item => item.ShopMark).FirstOrDefault(mark => !string.IsNullOrWhiteSpace(mark)) ?? "",
+                    StringComparer.OrdinalIgnoreCase);
+
+            foreach (PtImportJsonTendon tendon in document.Tendons.Where(tendon => tendon != null))
+            {
+                if (!string.IsNullOrWhiteSpace(tendon.GroupKey) &&
+                    markLookup.TryGetValue(tendon.GroupKey, out string shopMark) &&
+                    !string.IsNullOrWhiteSpace(shopMark))
+                {
+                    tendon.ShopMark = shopMark;
+                }
+            }
+
+            document.Notes.Add("Shop marks follow the import-time PT mark settings.");
+            document.Notes.Add("Sequence mode: " + sequenceMode.ToString() + ".");
+            return document;
+        }
+
+        private static PtImportJsonDocument BuildAdaptCadPtImportSnapshotDocument(
+            string sourcePath,
+            IEnumerable<AdaptCadPreviewLayerPackage> layerPackages,
+            AdaptPtShopMarkSequenceMode sequenceMode,
+            bool preserveCadShopMarks)
+        {
+            string sourceName = string.IsNullOrWhiteSpace(sourcePath) ? "" : System.IO.Path.GetFileName(sourcePath);
+            var document = new PtImportJsonDocument
+            {
+                ImportMethod = "cad-dwg-dxf",
+                Source = new PtImportJsonSource
+                {
+                    SourceType = GetAdaptPtSnapshotSourceType(sourcePath),
+                    SourcePath = sourcePath ?? "",
+                    DisplayName = sourceName,
+                    Generator = "DRAWING PT",
+                    ProjectName = string.IsNullOrWhiteSpace(sourceName) ? "" : System.IO.Path.GetFileNameWithoutExtension(sourceName)
+                }
+            };
+
+            document.CadReferences.Add(new PtImportJsonCadReference
+            {
+                FilePath = sourcePath ?? "",
+                Format = System.IO.Path.GetExtension(sourcePath ?? "").Trim('.').ToLowerInvariant(),
+                ImportMode = "link-or-import",
+                CandidateLayers = (layerPackages ?? Enumerable.Empty<AdaptCadPreviewLayerPackage>())
+                    .Where(x => x != null && !string.IsNullOrWhiteSpace(x.LayerName))
+                    .Select(x => x.LayerName)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList()
+            });
+
+            int sequence = 1;
+            foreach (AdaptCadPreviewLayerPackage layerPackage in (layerPackages ?? Enumerable.Empty<AdaptCadPreviewLayerPackage>())
+                .Where(x => x != null && !string.IsNullOrWhiteSpace(x.LayerName)))
+            {
+                foreach (AdaptCadPreviewChain chain in (layerPackage.Chains ?? new List<AdaptCadPreviewChain>())
+                    .Where(chain => chain != null && chain.Path.Count >= 2)
+                    .OrderBy(chain => chain.SequenceIndex > 0 ? chain.SequenceIndex : int.MaxValue)
+                    .ThenBy(chain => chain.Mark ?? "", StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(chain => chain.Signature ?? "", StringComparer.OrdinalIgnoreCase))
+                {
+                    List<PtImportJsonPoint> points = BuildPtImportJsonPoints(chain.Path);
+                    document.Tendons.Add(new PtImportJsonTendon
+                    {
+                        TendonId = !string.IsNullOrWhiteSpace(chain.Mark)
+                            ? chain.Mark
+                            : "CAD-CHAIN-" + sequence.ToString(CultureInfo.InvariantCulture),
+                        ShopMark = chain.Mark ?? "",
+                        GroupKey = layerPackage.LayerName,
+                        ProfileName = layerPackage.LayerName,
+                        TendonName = chain.Mark ?? "",
+                        SourceLabel = chain.UsesCadLabel ? "CAD label" : "Auto chain",
+                        SourceLayer = layerPackage.LayerName,
+                        TendonType = chain.UsesCadLabel ? "cad-labeled-chain" : "cad-chain",
+                        CenterlinePoints = points,
+                        ProfileHints = BuildPtImportJsonProfileHints(points),
+                        Tags = new List<string>
+                        {
+                            "dwg-dxf-import",
+                            chain.UsesCadLabel ? "cad-label" : "auto-mark"
+                        }
+                    });
+                    sequence++;
+                }
+            }
+
+            document.Notes.Add("DWG/DXF chains were normalized into the shared PT snapshot contract.");
+            document.Notes.Add("Auto marks are assigned once across all selected PT candidate layers.");
+            document.Notes.Add("Sequence mode: " + sequenceMode.ToString() + ".");
+            document.Notes.Add(preserveCadShopMarks ? "CAD text labels were preserved when available." : "CAD text labels were renumbered into the shared PT sequence.");
+            return document;
+        }
+
+        private static List<PtImportJsonPoint> BuildPtImportJsonPoints(IList<XYZ> path)
+        {
+            return (path ?? new List<XYZ>())
+                .Where(point => point != null)
+                .Select(point => new PtImportJsonPoint
+                {
+                    XFt = point.X,
+                    YFt = point.Y,
+                    ZFt = point.Z
+                })
+                .ToList();
+        }
+
+        private static PtImportJsonProfileHints BuildPtImportJsonProfileHints(IList<PtImportJsonPoint> points)
+        {
+            var hints = new PtImportJsonProfileHints();
+            if (points == null || points.Count == 0)
+            {
+                return hints;
+            }
+
+            double station = 0.0;
+            points[0].StationFt = 0.0;
+            points[0].ElevationFt = points[0].ZFt;
+            int highIndex = 0;
+            int lowIndex = 0;
+            for (int i = 1; i < points.Count; i++)
+            {
+                double dx = points[i].XFt - points[i - 1].XFt;
+                double dy = points[i].YFt - points[i - 1].YFt;
+                station += Math.Sqrt((dx * dx) + (dy * dy));
+                points[i].StationFt = station;
+                points[i].ElevationFt = points[i].ZFt;
+                if (points[i].ZFt > points[highIndex].ZFt)
+                {
+                    highIndex = i;
+                }
+
+                if (points[i].ZFt < points[lowIndex].ZFt)
+                {
+                    lowIndex = i;
+                }
+            }
+
+            hints.TotalLengthFt = station;
+            hints.HighPointStationFt = points[highIndex].StationFt;
+            hints.HighPointElevationFt = points[highIndex].ElevationFt;
+            hints.LowPointStationFt = points[lowIndex].StationFt;
+            hints.LowPointElevationFt = points[lowIndex].ElevationFt;
+            return hints;
+        }
+
+        private static string GetAdaptPtSnapshotSourceType(string sourcePath)
+        {
+            string ext = System.IO.Path.GetExtension(sourcePath ?? "").ToLowerInvariant();
+            switch (ext)
+            {
+                case ".adm":
+                    return "adapt-adm";
+                case ".dwg":
+                    return "adapt-dwg";
+                case ".dxf":
+                    return "adapt-dxf";
+                case ".csv":
+                case ".txt":
+                case ".tsv":
+                case ".xlsx":
+                case ".xlsm":
+                case ".xls":
+                    return "adapt-table";
+                default:
+                    return "converted-json";
+            }
+        }
+
+        private static void WriteAdaptPtImportSnapshot(
+            string sourcePath,
+            PtImportJsonDocument document,
+            IList<AdaptPtTakeoffRow> takeoffRows)
+        {
+            try
+            {
+                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                if (string.IsNullOrWhiteSpace(appData) || document == null)
+                {
+                    return;
+                }
+
+                string dateToken = DateTime.Now.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+                string timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture);
+                string sourceToken = MakeAdaptSafeToken(System.IO.Path.GetFileNameWithoutExtension(sourcePath) ?? "");
+                if (string.IsNullOrWhiteSpace(sourceToken))
+                {
+                    sourceToken = "PT";
+                }
+
+                string directory = System.IO.Path.Combine(appData, "MHNK", "RevitExtension", "DRAWING_PT", "Snapshots", dateToken);
+                System.IO.Directory.CreateDirectory(directory);
+
+                string importToken = string.Equals(document.ImportMethod, "cad-dwg-dxf", StringComparison.OrdinalIgnoreCase)
+                    ? "cad"
+                    : "adapt";
+                string baseName = "pt-import-" + importToken + "-" + sourceToken + "-" + timestamp;
+                string jsonPath = System.IO.Path.Combine(directory, baseName + ".json");
+                string csvPath = System.IO.Path.Combine(directory, baseName + ".csv");
+
+                System.IO.File.WriteAllText(jsonPath, CamboBimJson.Serialize(document) ?? "{}", System.Text.Encoding.UTF8);
+
+                var csv = new System.Text.StringBuilder();
+                csv.AppendLine("Sequence,ShopMark,Mark,OriginalMark,MarkSource,Type,Duct,Strands,Segments,LengthFt,LengthMm,Source");
+                foreach (AdaptPtTakeoffRow row in (takeoffRows ?? new List<AdaptPtTakeoffRow>())
+                    .Where(x => x != null)
+                    .OrderBy(x => x.SequenceIndex > 0 ? x.SequenceIndex : int.MaxValue)
+                    .ThenBy(x => x.ShopMark, StringComparer.OrdinalIgnoreCase))
+                {
+                    csv.Append(EscapeAdaptPtCsv(row.SequenceIndex > 0 ? row.SequenceIndex.ToString(CultureInfo.InvariantCulture) : "")).Append(',')
+                        .Append(EscapeAdaptPtCsv(row.ShopMark)).Append(',')
+                        .Append(EscapeAdaptPtCsv(row.Mark)).Append(',')
+                        .Append(EscapeAdaptPtCsv(row.OriginalMark)).Append(',')
+                        .Append(EscapeAdaptPtCsv(row.MarkSource)).Append(',')
+                        .Append(EscapeAdaptPtCsv(row.Type)).Append(',')
+                        .Append(EscapeAdaptPtCsv(row.Duct)).Append(',')
+                        .Append(EscapeAdaptPtCsv(row.Strands.HasValue ? row.Strands.Value.ToString(CultureInfo.InvariantCulture) : "")).Append(',')
+                        .Append(EscapeAdaptPtCsv(row.Segments.ToString(CultureInfo.InvariantCulture))).Append(',')
+                        .Append(EscapeAdaptPtCsv(row.LengthFt.ToString("0.###", CultureInfo.InvariantCulture))).Append(',')
+                        .Append(EscapeAdaptPtCsv((row.LengthFt * 304.8).ToString("0.#", CultureInfo.InvariantCulture))).Append(',')
+                        .Append(EscapeAdaptPtCsv(row.Source))
+                        .AppendLine();
+                }
+
+                System.IO.File.WriteAllText(csvPath, csv.ToString(), System.Text.Encoding.UTF8);
+            }
+            catch
+            {
+            }
+        }
+
+        private static string EscapeAdaptPtCsv(string value)
+        {
+            string text = value ?? "";
+            if (text.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0)
+            {
+                return "\"" + text.Replace("\"", "\"\"") + "\"";
+            }
+
+            return text;
+        }
+
+        private static void DrawAdaptPtTakeoffView(
+            Document doc,
+            ViewDrafting view,
+            TextNoteType textType,
+            string title,
+            string sourceToken,
+            IList<AdaptPtTakeoffRow> rows,
+            string workflowText,
+            int pageNumber,
+            int totalPages)
+        {
+            if (doc == null || view == null || textType == null)
+            {
+                return;
+            }
+
+            List<AdaptPtTakeoffRow> safeRows = (rows ?? new List<AdaptPtTakeoffRow>())
+                .Where(row => row != null)
+                .ToList();
+            double totalLengthFt = safeRows.Sum(row => row.LengthFt);
+            int totalSegments = safeRows.Sum(row => Math.Max(0, row.Segments));
+            int totalStrands = safeRows.Where(row => row.Strands.HasValue).Sum(row => row.Strands.Value);
+            bool anyStrands = safeRows.Any(row => row.Strands.HasValue);
+            string pageText = totalPages > 1
+                ? " | Page " + pageNumber.ToString(CultureInfo.InvariantCulture) + " of " + totalPages.ToString(CultureInfo.InvariantCulture)
+                : "";
+
+            AddShopDrawingText(doc, view, textType, 0.0, 0.80, title);
+            AddShopDrawingText(doc, view, textType, 0.0, 0.50, "Source: " + sourceToken + " | Page items: " + safeRows.Count.ToString(CultureInfo.InvariantCulture) + pageText);
+            AddShopDrawingText(doc, view, textType, 0.0, 0.22, "Length: " + FormatShopDrawingLength(totalLengthFt) + " | Segments: " + totalSegments.ToString(CultureInfo.InvariantCulture) + (anyStrands ? " | Strand total: " + totalStrands.ToString(CultureInfo.InvariantCulture) : ""));
+            AddShopDrawingText(doc, view, textType, 0.0, -0.02, workflowText);
+
+            DrawAdaptPtTakeoffTable(doc, view, textType, safeRows, 0.0, -0.48);
+        }
+
+        private static double DrawAdaptPtTakeoffTable(
+            Document doc,
+            View view,
+            TextNoteType textType,
+            IList<AdaptPtTakeoffRow> rows,
+            double x,
+            double y)
+        {
+            List<AdaptPtTakeoffRow> safeRows = (rows ?? new List<AdaptPtTakeoffRow>()).Where(row => row != null).ToList();
+            string[] headers = { "Shop", "Mark", "Type", "Duct", "Str", "Seg", "Length", "Source" };
+            double[] widths = { 0.80, 1.25, 1.35, 0.75, 0.45, 0.45, 0.85, 1.40 };
+            double rowHeight = 0.19;
+            double headerY = y;
+            double tableWidth = widths.Sum();
+            int visibleRows = Math.Min(AdaptPtTakeoffRowsPerPage, safeRows.Count);
+            double tableBottom = headerY - ((visibleRows + 1) * rowHeight) - 0.02;
+            AddShopDrawingRectangle(doc, view, x - 0.05, headerY + 0.12, x + tableWidth + 0.05, tableBottom);
+
+            double colX = x;
+            for (int i = 0; i < headers.Length; i++)
+            {
+                AddShopDrawingText(doc, view, textType, colX, headerY, headers[i]);
+                if (i > 0)
+                {
+                    AddShopDrawingLine(doc, view, colX - 0.05, headerY + 0.12, colX - 0.05, tableBottom);
+                }
+                colX += widths[i];
+            }
+
+            AddShopDrawingLine(doc, view, x - 0.05, headerY - 0.08, x + tableWidth + 0.05, headerY - 0.08);
+
+            double rowY = headerY - rowHeight;
+            foreach (AdaptPtTakeoffRow row in safeRows.Take(AdaptPtTakeoffRowsPerPage))
+            {
+                string[] values =
+                {
+                    TruncateShopDrawingCell(row.ShopMark, 12),
+                    TruncateShopDrawingCell(row.Mark, 18),
+                    TruncateShopDrawingCell(DefaultText(row.Type, "-"), 18),
+                    TruncateShopDrawingCell(DefaultText(row.Duct, "-"), 10),
+                    row.Strands.HasValue ? row.Strands.Value.ToString(CultureInfo.InvariantCulture) : "-",
+                    Math.Max(0, row.Segments).ToString(CultureInfo.InvariantCulture),
+                    TruncateShopDrawingCell(FormatShopDrawingLength(row.LengthFt), 12),
+                    TruncateShopDrawingCell(DefaultText(row.Source, "-"), 20)
+                };
+
+                colX = x;
+                for (int i = 0; i < values.Length; i++)
+                {
+                    AddShopDrawingText(doc, view, textType, colX, rowY, values[i]);
+                    colX += widths[i];
+                }
+                rowY -= rowHeight;
+            }
+
+            return tableBottom;
+        }
+
         private sealed class AdaptImportFailurePreprocessor : IFailuresPreprocessor
         {
             public FailureProcessingResult PreprocessFailures(FailuresAccessor failuresAccessor)
@@ -21014,6 +23258,127 @@ namespace CamboBIM.Revit2024.Addin
             }
         }
 
+        private sealed class AdaptPathSegment
+        {
+            public AdaptPathSegment(XYZ start, XYZ end)
+            {
+                Start = start;
+                End = end;
+            }
+
+            public XYZ Start { get; }
+            public XYZ End { get; }
+            public double Length => Start == null || End == null ? 0.0 : Start.DistanceTo(End);
+
+            public AdaptPathSegment Reversed()
+            {
+                return new AdaptPathSegment(End, Start);
+            }
+        }
+
+        private sealed class AdaptProfileRenderSettings
+        {
+            public double DraftingMarginFt { get; set; }
+            public double DraftingTargetWidthFt { get; set; }
+            public double DraftingTargetHeightFt { get; set; }
+            public double DraftingMinimumWidthFt { get; set; }
+            public double DraftingMinimumHeightFt { get; set; }
+            public double MinimumScale { get; set; }
+            public double MaximumScale { get; set; }
+            public double DraftingMinimumVisibleBandFt { get; set; }
+            public double TitleOffsetFt { get; set; }
+            public double HeaderLineGapFt { get; set; }
+            public double HeaderNoteGapFt { get; set; }
+            public double SummaryColumnOffsetFt { get; set; }
+            public double HeaderPrimaryColumnWidthFt { get; set; }
+            public double HeaderSecondaryColumnWidthFt { get; set; }
+            public double HeaderTertiaryColumnWidthFt { get; set; }
+            public double FooterNoteWidthFt { get; set; }
+            public double AxisLabelOffsetFt { get; set; }
+            public double AxisValueOffsetFt { get; set; }
+            public double StartEndLabelOffsetFt { get; set; }
+            public double EndLabelInsetFt { get; set; }
+            public double MarkerHalfSizeFt { get; set; }
+            public double MarkerTextOffsetFt { get; set; }
+            public double ActiveViewMarginFt { get; set; }
+            public double KeyPointTableOffsetFt { get; set; }
+            public double KeyPointRowGapFt { get; set; }
+            public double BubbleRadiusFt { get; set; }
+            public double BubbleColumnOffsetFt { get; set; }
+            public double BubbleTopOffsetFt { get; set; }
+            public double BubbleLeaderDropFt { get; set; }
+            public double BubbleMinimumSeparationFt { get; set; }
+            public double MarkerRowGapFt { get; set; }
+            public double MarkerSideOffsetFt { get; set; }
+            public double CalloutRailOffsetFt { get; set; }
+            public double CalloutTopPaddingFt { get; set; }
+            public double CalloutBottomPaddingFt { get; set; }
+            public double CalloutTextWidthFt { get; set; }
+            public double CalloutMinimumAnchorClearanceFt { get; set; }
+            public double CalloutTextSeparationFt { get; set; }
+            public double CalloutHorizontalInfluenceFt { get; set; }
+            public double DimensionChainOffsetFt { get; set; }
+            public double DimensionChainRowGapFt { get; set; }
+            public int TargetStationDivisions { get; set; }
+            public int TargetElevationDivisions { get; set; }
+        }
+
+        private enum AdaptDraftingTextAnchor
+        {
+            Left,
+            Center,
+            Right
+        }
+
+        private sealed class AdaptCadPreviewChain
+        {
+            public string Mark { get; set; } = "";
+            public string OriginalCadLabel { get; set; } = "";
+            public string Signature { get; set; } = "";
+            public List<XYZ> Path { get; set; } = new List<XYZ>();
+            public int SegmentCount { get; set; }
+            public double LengthFt { get; set; }
+            public XYZ Anchor { get; set; } = XYZ.Zero;
+            public bool UsesCadLabel { get; set; }
+            public int SequenceIndex { get; set; }
+        }
+
+        private sealed class AdaptCadPreviewLayerPackage
+        {
+            public string LayerName { get; set; } = "";
+            public CadShapeHits Hits { get; set; } = new CadShapeHits();
+            public List<AdaptCadPreviewChain> Chains { get; set; } = new List<AdaptCadPreviewChain>();
+        }
+
+        private sealed class AdaptProfilePackageItem
+        {
+            public string GroupKey { get; set; } = "";
+            public string ShopMark { get; set; } = "";
+            public string Signature { get; set; } = "";
+            public List<AdaptTendonProfileSegmentPayload> Segments { get; set; } = new List<AdaptTendonProfileSegmentPayload>();
+            public List<XYZ> Path { get; set; } = new List<XYZ>();
+            public double LengthFt { get; set; }
+            public XYZ Anchor { get; set; } = XYZ.Zero;
+            public int SequenceIndex { get; set; }
+        }
+
+        private sealed class AdaptPtTakeoffRow
+        {
+            public string ShopMark { get; set; } = "";
+            public string Mark { get; set; } = "";
+            public string OriginalMark { get; set; } = "";
+            public string MarkSource { get; set; } = "";
+            public int SequenceIndex { get; set; }
+            public string Type { get; set; } = "";
+            public string Duct { get; set; } = "";
+            public string Source { get; set; } = "";
+            public int Segments { get; set; }
+            public int? Strands { get; set; }
+            public double LengthFt { get; set; }
+        }
+
+        private const int AdaptPtTakeoffRowsPerPage = 24;
+
         private void ImportAdaptTendonProfiles(Document doc)
         {
             List<AdaptTendonProfileSegmentPayload> segments = Request.AdaptTendonProfileSegments ?? new List<AdaptTendonProfileSegmentPayload>();
@@ -21023,22 +23388,42 @@ namespace CamboBIM.Revit2024.Addin
                 return;
             }
 
+            string markPrefix = NormalizeAdaptShopMarkPrefix(Request?.AdaptShopMarkPrefix);
+            int markStartNumber = GetAdaptShopMarkStartNumber(Request?.AdaptShopMarkStartNumber ?? 1);
+            int markDigits = GetAdaptShopMarkDigits(Request?.AdaptShopMarkDigits ?? 3);
+            AdaptPtShopMarkSequenceMode sequenceMode = Request?.AdaptShopMarkSequenceMode ?? AdaptPtShopMarkSequenceMode.SourceAndName;
+            List<AdaptProfilePackageItem> packageItems = BuildAdaptProfilePackageItems(segments, markPrefix, markStartNumber, markDigits, sequenceMode);
+            List<AdaptPtTakeoffRow> snapshotRows = BuildAdaptProfileTakeoffRows(packageItems);
+            PtImportJsonDocument snapshotDocument = BuildAdaptDirectPtImportSnapshotDocument(
+                Request.AdaptTendonSourcePath,
+                Request.AdaptTendonImportMode,
+                segments,
+                packageItems,
+                sequenceMode);
+
+            // This is the main Revit-side ADAPT creation method. It turns parsed segments into
+            // solids, centerlines, active-view profile elements, and drafting profile views.
             View view = doc.ActiveView;
+            bool canDrawActiveProfileView = true;
             if (Request.AdaptTendonImportMode == AdaptTendonImportMode.ProfileDetail)
             {
-                if (view == null || view.IsTemplate ||
-                    view.ViewType == ViewType.ThreeD ||
-                    view.ViewType == ViewType.Schedule ||
-                    view.ViewType == ViewType.DrawingSheet)
-                {
-                    _window?.ShowStatus("ADAPT import: open a plan, section, elevation, or drafting view for Station/Elevation profile lines.");
-                    return;
-                }
+                canDrawActiveProfileView =
+                    view != null &&
+                    !view.IsTemplate &&
+                    view.ViewType != ViewType.ThreeD &&
+                    view.ViewType != ViewType.Schedule &&
+                    view.ViewType != ViewType.DrawingSheet;
             }
 
             int created = 0;
             int skipped = 0;
             int replaced = 0;
+            int createdSolids = 0;
+            int profileViews = 0;
+            int profileSheets = 0;
+            var createdModelElements = new List<Element>();
+            bool activeProfileViewSkipped = Request.AdaptTendonImportMode == AdaptTendonImportMode.ProfileDetail && !canDrawActiveProfileView;
+            bool profileSheetCreationSkipped = false;
 
             using (Transaction t = new Transaction(doc, "CamboBIM - Import ADAPT Tendon Profiles"))
             {
@@ -21047,77 +23432,165 @@ namespace CamboBIM.Revit2024.Addin
                 failureOptions.SetFailuresPreprocessor(new AdaptImportFailurePreprocessor());
                 t.SetFailureHandlingOptions(failureOptions);
 
-                replaced = DeleteExistingAdaptTendonProfilesFromSource(doc, Request.AdaptTendonSourcePath);
+                replaced = DeleteExistingAdaptTendonImportsFromSource(doc, Request.AdaptTendonSourcePath);
 
                 GraphicsStyle lineStyle = EnsureAdaptTendonLineStyle(doc);
+                ElementId tendonMaterialId = EnsureAdaptTendonMaterial(doc);
 
-                foreach (AdaptTendonProfileSegmentPayload segment in segments)
+                if (Request.AdaptTendonImportMode == AdaptTendonImportMode.Model3D)
                 {
-                    if (segment == null)
+                    foreach (AdaptProfilePackageItem item in packageItems)
                     {
-                        skipped++;
-                        continue;
-                    }
-
-                    try
-                    {
-                        CurveElement curveElement;
-                        if (Request.AdaptTendonImportMode == AdaptTendonImportMode.ProfileDetail)
+                        List<Solid> solids = BuildAdaptTendonSolids(item.Segments, tendonMaterialId);
+                        if (solids.Count > 0)
                         {
-                            Line line = CreateAdaptProfileDetailLine(view, segment);
-                            if (line == null)
+                            try
+                            {
+                                DirectShape shape = DirectShape.CreateElement(doc, new ElementId(BuiltInCategory.OST_GenericModel));
+                                shape.ApplicationId = "MHNK";
+                                shape.ApplicationDataId = "MHNK_ADAPT_TENDON_" + MakeAdaptSafeToken(item.GroupKey);
+                                shape.Name = "MHNK ADAPT Tendon";
+                                shape.SetShape(solids.Cast<GeometryObject>().ToList());
+                                SetAdaptElementMetadata(shape, item.Segments.FirstOrDefault(), Request.AdaptTendonSourcePath, "ADAPT Tendon Solid | Shop=" + item.ShopMark);
+                                createdSolids++;
+                                createdModelElements.Add(shape);
+                            }
+                            catch
+                            {
+                                skipped++;
+                            }
+                        }
+
+                        foreach (AdaptTendonProfileSegmentPayload segment in item.Segments)
+                        {
+                            if (segment == null)
                             {
                                 skipped++;
                                 continue;
                             }
 
-                            curveElement = doc.Create.NewDetailCurve(view, line);
-                        }
-                        else
-                        {
-                            Line line = CreateAdaptModelLine(segment);
-                            if (line == null)
+                            try
+                            {
+                                Line line = CreateAdaptModelLine(segment);
+                                if (line == null)
+                                {
+                                    skipped++;
+                                    continue;
+                                }
+
+                                SketchPlane sketchPlane = CreateSketchPlaneForAdaptLine(doc, line);
+                                CurveElement curveElement = doc.Create.NewModelCurve(line, sketchPlane);
+                                if (lineStyle != null)
+                                {
+                                    curveElement.LineStyle = lineStyle;
+                                }
+
+                                SetAdaptElementMetadata(curveElement, segment, Request.AdaptTendonSourcePath, "ADAPT Tendon Centerline | Shop=" + item.ShopMark);
+                                created++;
+                                createdModelElements.Add(curveElement);
+                            }
+                            catch
                             {
                                 skipped++;
-                                continue;
                             }
-
-                            SketchPlane sketchPlane = CreateSketchPlaneForAdaptLine(doc, line);
-                            curveElement = doc.Create.NewModelCurve(line, sketchPlane);
                         }
-
-                        if (lineStyle != null)
-                        {
-                            curveElement.LineStyle = lineStyle;
-                        }
-
-                        SetAdaptCurveMetadata(curveElement, segment, Request.AdaptTendonSourcePath);
-                        created++;
                     }
-                    catch
+                }
+                else
+                {
+                    if (canDrawActiveProfileView)
                     {
-                        skipped++;
+                        foreach (AdaptProfilePackageItem item in packageItems)
+                        {
+                            int groupCreated = DrawAdaptProfileDetailGroup(doc, view, lineStyle, item.Segments, Request.AdaptTendonSourcePath, item.ShopMark);
+                            if (groupCreated > 0)
+                            {
+                                created += groupCreated;
+                            }
+                            else
+                            {
+                                skipped++;
+                            }
+                        }
+                    }
+                }
+
+                profileViews = SyncAdaptProfileDraftingViews(doc, packageItems, Request.AdaptTendonSourcePath);
+                bool hasSheetEligibleOutput =
+                    profileViews > 0 ||
+                    (Request.AdaptTendonImportMode == AdaptTendonImportMode.Model3D && createdModelElements.Count > 0);
+                if (hasSheetEligibleOutput)
+                {
+                    ElementId titleBlockTypeId = GetShopDrawingTitleBlockTypeId(doc);
+                    if (titleBlockTypeId != null && titleBlockTypeId != ElementId.InvalidElementId)
+                    {
+                        string issueText = NormalizeShopDrawingIssueText(Request?.ShopDrawingsIssueText);
+                        ShopDrawingIssueMetadata metadata = BuildShopDrawingIssueMetadata(Request, issueText);
+                        if (Request.AdaptTendonImportMode == AdaptTendonImportMode.Model3D && createdModelElements.Count > 0)
+                        {
+                            profileSheets += SyncAdaptProfileModelReviewSheet(doc, Request.AdaptTendonSourcePath, createdModelElements, titleBlockTypeId, metadata, out int modelReviewViews);
+                            profileViews += modelReviewViews;
+                        }
+                        profileSheets += SyncAdaptProfileSheets(doc, Request.AdaptTendonSourcePath, titleBlockTypeId, metadata);
+                        profileSheets += SyncAdaptProfileTakeoffSheet(doc, packageItems, Request.AdaptTendonSourcePath, titleBlockTypeId, metadata);
+                    }
+                    else
+                    {
+                        profileSheetCreationSkipped = true;
                     }
                 }
 
                 t.Commit();
             }
 
+            WriteAdaptPtImportSnapshot(Request.AdaptTendonSourcePath, snapshotDocument, snapshotRows);
+
             string source = string.IsNullOrWhiteSpace(Request.AdaptTendonSourcePath)
                 ? ""
                 : " from " + System.IO.Path.GetFileName(Request.AdaptTendonSourcePath);
             string mode = Request.AdaptTendonImportMode == AdaptTendonImportMode.Model3D
-                ? "3D model line"
-                : "profile detail line";
-            _window?.ShowStatus(
-                "ADAPT import: created " +
-                created.ToString(CultureInfo.InvariantCulture) +
-                " " + mode + "(s)" + source +
-                ". Replaced: " + replaced.ToString(CultureInfo.InvariantCulture) +
-                ". Skipped: " + skipped.ToString(CultureInfo.InvariantCulture) + ".");
+                ? "3D tendon centerline"
+                : "profile detail element";
+            if (Request.AdaptTendonImportMode == AdaptTendonImportMode.Model3D)
+            {
+                string profileSheetNote = profileSheetCreationSkipped
+                    ? " Profile sheets were skipped because no title block type was available."
+                    : "";
+                _window?.ShowStatus(
+                    "ADAPT import: created " +
+                    createdSolids.ToString(CultureInfo.InvariantCulture) +
+                    " tendon solid(s) and " +
+                    created.ToString(CultureInfo.InvariantCulture) +
+                    " " + mode + "(s)" + source +
+                    ". PT package view(s): " + profileViews.ToString(CultureInfo.InvariantCulture) +
+                    ". PT package sheet(s): " + profileSheets.ToString(CultureInfo.InvariantCulture) +
+                    ". Replaced: " + replaced.ToString(CultureInfo.InvariantCulture) +
+                    ". Skipped: " + skipped.ToString(CultureInfo.InvariantCulture) +
+                    ". Solid diameter defaults to 50 mm when no source size is available." +
+                    profileSheetNote);
+            }
+            else
+            {
+                string activeViewNote = activeProfileViewSkipped
+                    ? " Active view could not host profile detail, so drafting profile view(s) were created instead."
+                    : "";
+                string profileSheetNote = profileSheetCreationSkipped
+                    ? " Profile sheets were skipped because no title block type was available."
+                    : "";
+                _window?.ShowStatus(
+                    "ADAPT import: created " +
+                    created.ToString(CultureInfo.InvariantCulture) +
+                    " " + mode + "(s)" + source +
+                    ". PT package view(s): " + profileViews.ToString(CultureInfo.InvariantCulture) +
+                    ". PT package sheet(s): " + profileSheets.ToString(CultureInfo.InvariantCulture) +
+                    ". Replaced: " + replaced.ToString(CultureInfo.InvariantCulture) +
+                    ". Skipped: " + skipped.ToString(CultureInfo.InvariantCulture) + "." +
+                    activeViewNote +
+                    profileSheetNote);
+            }
         }
 
-        private static int DeleteExistingAdaptTendonProfilesFromSource(Document doc, string sourcePath)
+        private static int DeleteExistingAdaptTendonImportsFromSource(Document doc, string sourcePath)
         {
             if (doc == null || string.IsNullOrWhiteSpace(sourcePath))
             {
@@ -21131,12 +23604,12 @@ namespace CamboBIM.Revit2024.Addin
             }
 
             List<ElementId> ids = new FilteredElementCollector(doc)
-                .OfClass(typeof(CurveElement))
-                .Cast<CurveElement>()
+                .WhereElementIsNotElementType()
+                .Where(element => element is CurveElement || element is DirectShape)
                 .Where(element =>
                 {
                     string comments = GetElementComments(element);
-                    return comments.IndexOf("ADAPT Tendon Profile", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    return comments.IndexOf("ADAPT Tendon", StringComparison.OrdinalIgnoreCase) >= 0 &&
                            comments.IndexOf(sourceName, StringComparison.OrdinalIgnoreCase) >= 0;
                 })
                 .Select(element => element.Id)
@@ -21156,6 +23629,2774 @@ namespace CamboBIM.Revit2024.Addin
             {
                 return 0;
             }
+        }
+
+        private static IEnumerable<IGrouping<string, AdaptTendonProfileSegmentPayload>> GroupAdaptTendonSegments(
+            IEnumerable<AdaptTendonProfileSegmentPayload> segments)
+        {
+            return (segments ?? Enumerable.Empty<AdaptTendonProfileSegmentPayload>())
+                .Where(segment => segment != null)
+                .GroupBy(GetAdaptTendonGroupKey, StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static string GetAdaptTendonGroupKey(AdaptTendonProfileSegmentPayload segment)
+        {
+            string label = BuildAdaptMetadataLabel(segment);
+            if (!string.IsNullOrWhiteSpace(label))
+            {
+                return label;
+            }
+
+            string sourceLabel = segment?.SourceLabel ?? "";
+            return string.IsNullOrWhiteSpace(sourceLabel) ? "ADAPT Tendon" : sourceLabel.Trim();
+        }
+
+        private static List<Solid> BuildAdaptTendonSolids(
+            IEnumerable<AdaptTendonProfileSegmentPayload> segments,
+            ElementId materialId)
+        {
+            var solids = new List<Solid>();
+            foreach (AdaptTendonProfileSegmentPayload segment in segments ?? Enumerable.Empty<AdaptTendonProfileSegmentPayload>())
+            {
+                Solid solid = CreateAdaptTendonSegmentSolid(segment, materialId);
+                if (solid != null && solid.Volume > 1.0e-9)
+                {
+                    solids.Add(solid);
+                }
+            }
+
+            return solids;
+        }
+
+        private static int SyncAdaptProfileDraftingViews(
+            Document doc,
+            IList<AdaptProfilePackageItem> packageItems,
+            string sourcePath)
+        {
+            if (doc == null)
+            {
+                return 0;
+            }
+
+            List<AdaptProfilePackageItem> items = (packageItems ?? new List<AdaptProfilePackageItem>())
+                .Where(item => item != null && item.Path != null && item.Path.Count >= 2)
+                .ToList();
+            if (items.Count == 0)
+            {
+                return 0;
+            }
+
+            ViewFamilyType draftingType = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewFamilyType))
+                .Cast<ViewFamilyType>()
+                .FirstOrDefault(x => x.ViewFamily == ViewFamily.Drafting);
+            if (draftingType == null)
+            {
+                return 0;
+            }
+
+            TextNoteType textType = new FilteredElementCollector(doc)
+                .OfClass(typeof(TextNoteType))
+                .Cast<TextNoteType>()
+                .FirstOrDefault();
+
+            string sourceToken = BuildAdaptProfileViewSourceToken(sourcePath);
+            var validViewNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int updated = 0;
+            foreach (AdaptProfilePackageItem item in items)
+            {
+                string viewName = BuildAdaptProfileViewName(sourceToken, item.GroupKey);
+                validViewNames.Add(viewName);
+                ViewDrafting view = FindAdaptDraftingViewByName(doc, viewName);
+                if (view == null)
+                {
+                    try
+                    {
+                        view = ViewDrafting.Create(doc, draftingType.Id);
+                        view.Name = viewName;
+                    }
+                    catch
+                    {
+                        view = FindAdaptDraftingViewByName(doc, viewName);
+                    }
+                }
+
+                if (view == null)
+                {
+                    continue;
+                }
+
+                ClearAdaptDraftingViewContents(doc, view);
+                DrawAdaptProfileDraftingView(doc, view, textType, item.GroupKey, sourceToken, item.Path, item.Segments, sourcePath, item.ShopMark);
+                updated++;
+            }
+
+            DeleteStaleAdaptDraftingViews(doc, sourceToken, validViewNames);
+            return updated;
+        }
+
+        private static string BuildAdaptProfileViewSourceToken(string sourcePath)
+        {
+            string name = string.IsNullOrWhiteSpace(sourcePath)
+                ? "Manual"
+                : (System.IO.Path.GetFileNameWithoutExtension(sourcePath) ?? "Manual");
+            return MakeAdaptSafeToken(name);
+        }
+
+        private static string BuildAdaptProfileViewName(string sourceToken, string groupKey)
+        {
+            string groupToken = MakeAdaptSafeToken(groupKey);
+            string name = "MHNK ADAPT PROFILE - " + sourceToken + " - " + groupToken;
+            return name.Length > 120 ? name.Substring(0, 120) : name;
+        }
+
+        private static ViewDrafting FindAdaptDraftingViewByName(Document doc, string viewName)
+        {
+            if (doc == null || string.IsNullOrWhiteSpace(viewName))
+            {
+                return null;
+            }
+
+            return new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewDrafting))
+                .Cast<ViewDrafting>()
+                .FirstOrDefault(v => string.Equals(v.Name, viewName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static void DeleteStaleAdaptDraftingViews(
+            Document doc,
+            string sourceToken,
+            ISet<string> validViewNames)
+        {
+            if (doc == null || string.IsNullOrWhiteSpace(sourceToken))
+            {
+                return;
+            }
+
+            string prefix = "MHNK ADAPT PROFILE - " + sourceToken + " - ";
+            List<ElementId> staleIds = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewDrafting))
+                .Cast<ViewDrafting>()
+                .Where(v =>
+                    v != null &&
+                    !v.IsTemplate &&
+                    !string.IsNullOrWhiteSpace(v.Name) &&
+                    v.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+                    (validViewNames == null || !validViewNames.Contains(v.Name)))
+                .Select(v => v.Id)
+                .ToList();
+            if (staleIds.Count == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                doc.Delete(staleIds);
+            }
+            catch
+            {
+            }
+        }
+
+        private static int SyncAdaptProfileSheets(
+            Document doc,
+            string sourcePath,
+            ElementId titleBlockTypeId,
+            ShopDrawingIssueMetadata metadata)
+        {
+            if (doc == null || titleBlockTypeId == null || titleBlockTypeId == ElementId.InvalidElementId)
+            {
+                return 0;
+            }
+
+            string sourceToken = BuildAdaptProfileViewSourceToken(sourcePath);
+            DeleteAdaptProfileSheets(doc, sourceToken);
+            DeleteAdaptProfileIndexViews(doc, sourceToken);
+            List<ViewDrafting> views = CollectAdaptProfileDraftingViews(doc, sourceToken);
+            if (views.Count == 0)
+            {
+                return 0;
+            }
+
+            DeleteAdaptProfileViewports(doc, views.Select(v => v.Id));
+            try
+            {
+                doc.Regenerate();
+            }
+            catch
+            {
+            }
+
+            HashSet<string> sheetNumbers = new HashSet<string>(
+                new FilteredElementCollector(doc)
+                    .OfClass(typeof(ViewSheet))
+                    .Cast<ViewSheet>()
+                    .Select(sheet => sheet?.SheetNumber ?? "")
+                    .Where(number => !string.IsNullOrWhiteSpace(number)),
+                StringComparer.OrdinalIgnoreCase);
+            string sheetPrefix = BuildAdaptProfileSheetPrefix(sourceToken);
+            int created = 0;
+            var createdSheets = new List<ViewSheet>();
+            foreach (ViewDrafting view in views)
+            {
+                if (view == null)
+                {
+                    continue;
+                }
+
+                string groupToken = ExtractAdaptProfileGroupToken(view.Name, sourceToken);
+                ViewSheet sheet = CreateShopDrawingSheetForViews(
+                    doc,
+                    view,
+                    null,
+                    titleBlockTypeId,
+                    sheetNumbers,
+                    sheetPrefix,
+                    "ADAPT PROFILE",
+                    sourceToken + " - " + groupToken,
+                    metadata);
+                if (sheet != null)
+                {
+                    createdSheets.Add(sheet);
+                    created++;
+                }
+            }
+
+            ViewSheet indexSheet = CreateAdaptProfileIndexSheet(doc, sourceToken, titleBlockTypeId, sheetNumbers, createdSheets, metadata);
+            if (indexSheet != null)
+            {
+                created++;
+            }
+
+            return created;
+        }
+
+        private static int SyncAdaptProfileTakeoffSheet(
+            Document doc,
+            IList<AdaptProfilePackageItem> packageItems,
+            string sourcePath,
+            ElementId titleBlockTypeId,
+            ShopDrawingIssueMetadata metadata)
+        {
+            if (doc == null || titleBlockTypeId == null || titleBlockTypeId == ElementId.InvalidElementId)
+            {
+                return 0;
+            }
+
+            string sourceToken = BuildAdaptProfileViewSourceToken(sourcePath);
+            DeleteAdaptProfileTakeoffSheets(doc, sourceToken);
+            DeleteAdaptProfileTakeoffViews(doc, sourceToken);
+            List<AdaptPtTakeoffRow> rows = BuildAdaptProfileTakeoffRows(packageItems);
+            if (rows.Count == 0)
+            {
+                return 0;
+            }
+
+            ViewFamilyType draftingType = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewFamilyType))
+                .Cast<ViewFamilyType>()
+                .FirstOrDefault(x => x.ViewFamily == ViewFamily.Drafting);
+            TextNoteType textType = new FilteredElementCollector(doc)
+                .OfClass(typeof(TextNoteType))
+                .Cast<TextNoteType>()
+                .FirstOrDefault();
+            if (draftingType == null)
+            {
+                return 0;
+            }
+
+            HashSet<string> viewNames = new HashSet<string>(
+                new FilteredElementCollector(doc)
+                    .OfClass(typeof(View))
+                    .Cast<View>()
+                    .Where(view => view != null && !string.IsNullOrWhiteSpace(view.Name))
+                    .Select(view => view.Name),
+                StringComparer.OrdinalIgnoreCase);
+            HashSet<string> sheetNumbers = new HashSet<string>(
+                new FilteredElementCollector(doc)
+                    .OfClass(typeof(ViewSheet))
+                    .Cast<ViewSheet>()
+                    .Select(sheet => sheet?.SheetNumber ?? "")
+                    .Where(number => !string.IsNullOrWhiteSpace(number)),
+                StringComparer.OrdinalIgnoreCase);
+            int totalPages = Math.Max(1, (int)Math.Ceiling(rows.Count / (double)AdaptPtTakeoffRowsPerPage));
+            int createdSheets = 0;
+            for (int pageNumber = 1; pageNumber <= totalPages; pageNumber++)
+            {
+                List<AdaptPtTakeoffRow> pageRows = rows
+                    .Skip((pageNumber - 1) * AdaptPtTakeoffRowsPerPage)
+                    .Take(AdaptPtTakeoffRowsPerPage)
+                    .ToList();
+                if (pageRows.Count == 0)
+                {
+                    continue;
+                }
+
+                ViewDrafting takeoffView = null;
+                try
+                {
+                    takeoffView = ViewDrafting.Create(doc, draftingType.Id);
+                    takeoffView.Name = MakeUniqueViewName(viewNames, BuildAdaptProfileTakeoffViewName(sourceToken, pageNumber, totalPages));
+                    DrawAdaptPtTakeoffView(
+                        doc,
+                        takeoffView,
+                        textType,
+                        "ADAPT PT TAKEOFF",
+                        sourceToken,
+                        pageRows,
+                        "Workflow: Direct ADAPT import",
+                        pageNumber,
+                        totalPages);
+
+                    ViewSheet sheet = CreateShopDrawingSheetForViews(
+                        doc,
+                        takeoffView,
+                        null,
+                        titleBlockTypeId,
+                        sheetNumbers,
+                        BuildAdaptProfileSheetPrefix(sourceToken),
+                        "ADAPT PT TAKEOFF",
+                        sourceToken,
+                        metadata);
+                    if (sheet == null)
+                    {
+                        try { doc.Delete(takeoffView.Id); } catch { }
+                        continue;
+                    }
+
+                    try
+                    {
+                        sheet.Name = GetAdaptProfileTakeoffSheetName(sourceToken, pageNumber, totalPages);
+                        ApplyShopDrawingSheetMetadata(doc, sheet, metadata, "ADAPT PT TAKEOFF", sourceToken);
+                    }
+                    catch
+                    {
+                    }
+
+                    createdSheets++;
+                }
+                catch
+                {
+                    if (takeoffView != null && takeoffView.Id != null && takeoffView.Id != ElementId.InvalidElementId)
+                    {
+                        try { doc.Delete(takeoffView.Id); } catch { }
+                    }
+                }
+            }
+
+            return createdSheets;
+        }
+
+        private static int SyncAdaptProfileModelReviewSheet(
+            Document doc,
+            string sourcePath,
+            IList<Element> modelElements,
+            ElementId titleBlockTypeId,
+            ShopDrawingIssueMetadata metadata,
+            out int createdViews)
+        {
+            createdViews = 0;
+            if (doc == null || titleBlockTypeId == null || titleBlockTypeId == ElementId.InvalidElementId)
+            {
+                return 0;
+            }
+
+            List<Element> safeElements = (modelElements ?? new List<Element>())
+                .Where(element => element != null && element.Id != null && element.Id != ElementId.InvalidElementId)
+                .GroupBy(element => element.Id.IntegerValue)
+                .Select(group => group.First())
+                .ToList();
+            if (safeElements.Count == 0)
+            {
+                return 0;
+            }
+
+            string sourceToken = BuildAdaptProfileViewSourceToken(sourcePath);
+            DeleteAdaptProfileModelViews(doc, sourceToken);
+
+            ViewFamilyType modelViewType = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewFamilyType))
+                .Cast<ViewFamilyType>()
+                .FirstOrDefault(x => x.ViewFamily == ViewFamily.ThreeDimensional);
+            if (modelViewType == null)
+            {
+                return 0;
+            }
+
+            HashSet<string> viewNames = new HashSet<string>(
+                new FilteredElementCollector(doc)
+                    .OfClass(typeof(View))
+                    .Cast<View>()
+                    .Where(view => view != null && !string.IsNullOrWhiteSpace(view.Name))
+                    .Select(view => view.Name),
+                StringComparer.OrdinalIgnoreCase);
+            HashSet<string> sheetNumbers = new HashSet<string>(
+                new FilteredElementCollector(doc)
+                    .OfClass(typeof(ViewSheet))
+                    .Cast<ViewSheet>()
+                    .Select(sheet => sheet?.SheetNumber ?? "")
+                    .Where(number => !string.IsNullOrWhiteSpace(number)),
+                StringComparer.OrdinalIgnoreCase);
+
+            View3D modelView = null;
+            try
+            {
+                modelView = CreateShopDrawingModelView(
+                    doc,
+                    modelViewType,
+                    viewNames,
+                    safeElements,
+                    BuildAdaptProfileModelViewName(sourceToken),
+                    viewScale: 25,
+                    isFormwork: false);
+                if (modelView == null)
+                {
+                    return 0;
+                }
+
+                ViewSheet sheet = CreateShopDrawingSheetForViews(
+                    doc,
+                    null,
+                    modelView,
+                    titleBlockTypeId,
+                    sheetNumbers,
+                    BuildAdaptProfileSheetPrefix(sourceToken),
+                    "ADAPT PT MODEL",
+                    sourceToken,
+                    metadata);
+                if (sheet == null)
+                {
+                    try { doc.Delete(modelView.Id); } catch { }
+                    return 0;
+                }
+
+                try
+                {
+                    sheet.Name = GetAdaptProfileModelSheetName(sourceToken);
+                    ApplyShopDrawingSheetMetadata(doc, sheet, metadata, "ADAPT PT MODEL", sourceToken);
+                }
+                catch
+                {
+                }
+
+                createdViews = 1;
+                return 1;
+            }
+            catch
+            {
+                if (modelView != null && modelView.Id != null && modelView.Id != ElementId.InvalidElementId)
+                {
+                    try { doc.Delete(modelView.Id); } catch { }
+                }
+
+                return 0;
+            }
+        }
+
+        private static List<ViewDrafting> CollectAdaptProfileDraftingViews(Document doc, string sourceToken)
+        {
+            if (doc == null || string.IsNullOrWhiteSpace(sourceToken))
+            {
+                return new List<ViewDrafting>();
+            }
+
+            string prefix = GetAdaptProfileViewNamePrefix(sourceToken);
+            return new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewDrafting))
+                .Cast<ViewDrafting>()
+                .Where(view =>
+                    view != null &&
+                    !view.IsTemplate &&
+                    !string.IsNullOrWhiteSpace(view.Name) &&
+                    view.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(view => view.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static string GetAdaptProfileViewNamePrefix(string sourceToken)
+        {
+            return "MHNK ADAPT PROFILE - " + sourceToken + " - ";
+        }
+
+        private static string BuildAdaptProfileSheetPrefix(string sourceToken)
+        {
+            return NormalizeShopDrawingSheetPrefix("MHNK-ADPT-" + (sourceToken ?? ""), "MHNK-ADPT");
+        }
+
+        private static string GetAdaptProfileSheetNamePrefix(string sourceToken)
+        {
+            return "ADAPT PROFILE - " + sourceToken + " - ";
+        }
+
+        private static string BuildAdaptProfileTakeoffViewName(string sourceToken, int pageNumber = 1, int totalPages = 1)
+        {
+            string baseName = "MHNK_ADAPT_PROFILE_TAKEOFF_" + sourceToken;
+            return totalPages > 1
+                ? baseName + "_P" + pageNumber.ToString(CultureInfo.InvariantCulture)
+                : baseName;
+        }
+
+        private static string GetAdaptProfileTakeoffSheetName(string sourceToken, int pageNumber = 1, int totalPages = 1)
+        {
+            string baseName = "ADAPT PT TAKEOFF - " + sourceToken;
+            return totalPages > 1
+                ? baseName + " - " + pageNumber.ToString("00", CultureInfo.InvariantCulture)
+                : baseName;
+        }
+
+        private static string BuildAdaptProfileIndexViewName(string sourceToken)
+        {
+            return "MHNK_ADAPT_PROFILE_INDEX_" + sourceToken;
+        }
+
+        private static string GetAdaptProfileIndexSheetName(string sourceToken)
+        {
+            return "ADAPT PROFILE INDEX - " + sourceToken;
+        }
+
+        private static string BuildAdaptProfileModelViewName(string sourceToken)
+        {
+            return "MHNK_ADAPT_PROFILE_MODEL_" + sourceToken;
+        }
+
+        private static string GetAdaptProfileModelSheetName(string sourceToken)
+        {
+            return "ADAPT PT MODEL - " + sourceToken;
+        }
+
+        private static int DeleteAdaptProfileIndexViews(Document doc, string sourceToken)
+        {
+            if (doc == null || string.IsNullOrWhiteSpace(sourceToken))
+            {
+                return 0;
+            }
+
+            string indexViewName = BuildAdaptProfileIndexViewName(sourceToken);
+            List<ElementId> ids = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewDrafting))
+                .Cast<ViewDrafting>()
+                .Where(view =>
+                    view != null &&
+                    !view.IsTemplate &&
+                    string.Equals(view.Name, indexViewName, StringComparison.OrdinalIgnoreCase))
+                .Select(view => view.Id)
+                .ToList();
+            return DeleteShopDrawingElementsBestEffort(doc, ids);
+        }
+
+        private static string ExtractAdaptProfileGroupToken(string viewName, string sourceToken)
+        {
+            string prefix = GetAdaptProfileViewNamePrefix(sourceToken);
+            if (!string.IsNullOrWhiteSpace(viewName) &&
+                viewName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                string suffix = viewName.Substring(prefix.Length).Trim();
+                if (!string.IsNullOrWhiteSpace(suffix))
+                {
+                    return suffix;
+                }
+            }
+
+            return MakeAdaptSafeToken(viewName);
+        }
+
+        private static int DeleteAdaptProfileSheets(Document doc, string sourceToken)
+        {
+            if (doc == null || string.IsNullOrWhiteSpace(sourceToken))
+            {
+                return 0;
+            }
+
+            string namePrefix = GetAdaptProfileSheetNamePrefix(sourceToken);
+            string numberPrefix = BuildAdaptProfileSheetPrefix(sourceToken);
+            List<ElementId> sheetIds = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewSheet))
+                .Cast<ViewSheet>()
+                .Where(sheet =>
+                    sheet != null &&
+                    (
+                        (!string.IsNullOrWhiteSpace(sheet.Name) && sheet.Name.StartsWith(namePrefix, StringComparison.OrdinalIgnoreCase)) ||
+                        (!string.IsNullOrWhiteSpace(sheet.SheetNumber) && sheet.SheetNumber.StartsWith(numberPrefix, StringComparison.OrdinalIgnoreCase))
+                    ))
+                .Select(sheet => sheet.Id)
+                .ToList();
+            return DeleteShopDrawingElementsBestEffort(doc, sheetIds);
+        }
+
+        private static int DeleteAdaptProfileTakeoffSheets(Document doc, string sourceToken)
+        {
+            if (doc == null || string.IsNullOrWhiteSpace(sourceToken))
+            {
+                return 0;
+            }
+
+            string namePrefix = GetAdaptProfileTakeoffSheetName(sourceToken);
+            List<ElementId> ids = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewSheet))
+                .Cast<ViewSheet>()
+                .Where(sheet => sheet != null && !string.IsNullOrWhiteSpace(sheet.Name) && sheet.Name.StartsWith(namePrefix, StringComparison.OrdinalIgnoreCase))
+                .Select(sheet => sheet.Id)
+                .ToList();
+            return DeleteShopDrawingElementsBestEffort(doc, ids);
+        }
+
+        private static int DeleteAdaptProfileTakeoffViews(Document doc, string sourceToken)
+        {
+            if (doc == null || string.IsNullOrWhiteSpace(sourceToken))
+            {
+                return 0;
+            }
+
+            string viewName = BuildAdaptProfileTakeoffViewName(sourceToken);
+            List<ElementId> ids = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewDrafting))
+                .Cast<ViewDrafting>()
+                .Where(view =>
+                    view != null &&
+                    !view.IsTemplate &&
+                    !string.IsNullOrWhiteSpace(view.Name) &&
+                    view.Name.StartsWith(viewName, StringComparison.OrdinalIgnoreCase))
+                .Select(view => view.Id)
+                .ToList();
+            return DeleteShopDrawingElementsBestEffort(doc, ids);
+        }
+
+        private static int DeleteAdaptProfileModelViews(Document doc, string sourceToken)
+        {
+            if (doc == null || string.IsNullOrWhiteSpace(sourceToken))
+            {
+                return 0;
+            }
+
+            string viewName = BuildAdaptProfileModelViewName(sourceToken);
+            List<ElementId> ids = new FilteredElementCollector(doc)
+                .OfClass(typeof(View3D))
+                .Cast<View3D>()
+                .Where(view =>
+                    view != null &&
+                    !view.IsTemplate &&
+                    !string.IsNullOrWhiteSpace(view.Name) &&
+                    string.Equals(view.Name, viewName, StringComparison.OrdinalIgnoreCase))
+                .Select(view => view.Id)
+                .ToList();
+            return DeleteShopDrawingElementsBestEffort(doc, ids);
+        }
+
+        private static int DeleteAdaptProfileViewports(Document doc, IEnumerable<ElementId> viewIds)
+        {
+            if (doc == null)
+            {
+                return 0;
+            }
+
+            HashSet<int> ids = new HashSet<int>(
+                (viewIds ?? Enumerable.Empty<ElementId>())
+                    .Where(id => id != null && id != ElementId.InvalidElementId)
+                    .Select(id => id.IntegerValue));
+            if (ids.Count == 0)
+            {
+                return 0;
+            }
+
+            List<ElementId> viewportIds = new FilteredElementCollector(doc)
+                .OfClass(typeof(Viewport))
+                .Cast<Viewport>()
+                .Where(viewport => viewport != null && ids.Contains(viewport.ViewId.IntegerValue))
+                .Select(viewport => viewport.Id)
+                .ToList();
+            return DeleteShopDrawingElementsBestEffort(doc, viewportIds);
+        }
+
+        private static ViewSheet CreateAdaptProfileIndexSheet(
+            Document doc,
+            string sourceToken,
+            ElementId titleBlockTypeId,
+            HashSet<string> sheetNumbers,
+            IList<ViewSheet> drawingSheets,
+            ShopDrawingIssueMetadata metadata)
+        {
+            if (doc == null || string.IsNullOrWhiteSpace(sourceToken) || titleBlockTypeId == null || titleBlockTypeId == ElementId.InvalidElementId)
+            {
+                return null;
+            }
+
+            IList<ViewSheet> orderedSheets = (drawingSheets ?? new List<ViewSheet>())
+                .Where(sheet => sheet != null)
+                .OrderBy(sheet => sheet.SheetNumber, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (orderedSheets.Count == 0)
+            {
+                return null;
+            }
+
+            ViewFamilyType draftingType = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewFamilyType))
+                .Cast<ViewFamilyType>()
+                .FirstOrDefault(x => x.ViewFamily == ViewFamily.Drafting);
+            if (draftingType == null)
+            {
+                return null;
+            }
+
+            TextNoteType textType = new FilteredElementCollector(doc)
+                .OfClass(typeof(TextNoteType))
+                .Cast<TextNoteType>()
+                .FirstOrDefault();
+            HashSet<string> viewNames = new HashSet<string>(
+                new FilteredElementCollector(doc)
+                    .OfClass(typeof(View))
+                    .Cast<View>()
+                    .Where(view => view != null && !string.IsNullOrWhiteSpace(view.Name))
+                    .Select(view => view.Name),
+                StringComparer.OrdinalIgnoreCase);
+
+            ViewDrafting indexView = null;
+            try
+            {
+                indexView = ViewDrafting.Create(doc, draftingType.Id);
+                if (indexView == null)
+                {
+                    return null;
+                }
+
+                indexView.Name = MakeUniqueViewName(viewNames, BuildAdaptProfileIndexViewName(sourceToken));
+                string packageName = DefaultText(metadata?.PackageName, "SHOP DRAWING PACKAGE");
+                string revision = DefaultText(metadata?.Revision, "R0");
+                string discipline = DefaultText(metadata?.Discipline, "STRUCTURAL");
+                string issueText = DefaultText(metadata?.IssueText, "FOR CONSTRUCTION REVIEW");
+                string issueDate = DefaultText(metadata?.IssueDate, DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                AddShopDrawingText(doc, indexView, textType, 0.0, 0.8, packageName);
+                AddShopDrawingText(doc, indexView, textType, 0.0, 0.48, $"ADAPT PROFILE INDEX | {discipline} | Rev: {revision}");
+                AddShopDrawingText(doc, indexView, textType, 0.0, 0.22, $"Source: {sourceToken} | Sheets: {orderedSheets.Count} | Issue: {issueText} | Date: {issueDate}");
+                AddShopDrawingText(doc, indexView, textType, 0.0, -0.06, "Workflow: Direct ADAPT import -> drafting profile views -> profile sheets");
+                AddShopDrawingText(doc, indexView, textType, 0.0, -0.28, $"Prepared: {DefaultText(metadata?.PreparedBy, "-")} | Checked: {DefaultText(metadata?.CheckedBy, "-")} | Approved: {DefaultText(metadata?.ApprovedBy, "-")}");
+
+                double tableBottom = DrawShopDrawingIndexTable(
+                    doc,
+                    indexView,
+                    textType,
+                    orderedSheets,
+                    x: 0.0,
+                    y: -0.72);
+
+                AddShopDrawingText(doc, indexView, textType, 0.0, tableBottom - 0.30, "Regenerate the same source file to replace the full ADAPT profile package.");
+
+                ViewSheet sheet = CreateShopDrawingSheetForViews(
+                    doc,
+                    indexView,
+                    null,
+                    titleBlockTypeId,
+                    sheetNumbers,
+                    BuildAdaptProfileSheetPrefix(sourceToken),
+                    "ADAPT PROFILE INDEX",
+                    sourceToken,
+                    metadata);
+                if (sheet == null)
+                {
+                    try
+                    {
+                        doc.Delete(indexView.Id);
+                    }
+                    catch
+                    {
+                    }
+
+                    return null;
+                }
+
+                try
+                {
+                    sheet.Name = GetAdaptProfileIndexSheetName(sourceToken);
+                    ApplyShopDrawingSheetMetadata(doc, sheet, metadata, "ADAPT PROFILE INDEX", sourceToken);
+                }
+                catch
+                {
+                }
+
+                return sheet;
+            }
+            catch
+            {
+                if (indexView != null && indexView.Id != null && indexView.Id != ElementId.InvalidElementId)
+                {
+                    try
+                    {
+                        doc.Delete(indexView.Id);
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                return null;
+            }
+        }
+
+        private static void ClearAdaptDraftingViewContents(Document doc, ViewDrafting view)
+        {
+            if (doc == null || view == null)
+            {
+                return;
+            }
+
+            List<ElementId> ids = new FilteredElementCollector(doc, view.Id)
+                .WhereElementIsNotElementType()
+                .Select(x => x.Id)
+                .ToList();
+            if (ids.Count == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                doc.Delete(ids);
+            }
+            catch
+            {
+            }
+        }
+
+        private static List<XYZ> BuildAdaptOrderedPathPoints(IEnumerable<AdaptTendonProfileSegmentPayload> segments)
+        {
+            // Grouped ADAPT segments are reordered into a continuous path before profile graphics are drawn.
+            List<AdaptPathSegment> pathSegments = (segments ?? Enumerable.Empty<AdaptTendonProfileSegmentPayload>())
+                .Where(segment => segment != null)
+                .Select(segment => new AdaptPathSegment(
+                    new XYZ(segment.X0Ft, segment.Y0Ft, segment.Z0Ft),
+                    new XYZ(segment.X1Ft, segment.Y1Ft, segment.Z1Ft)))
+                .Where(segment => segment.Length > 1.0e-6)
+                .ToList();
+            if (pathSegments.Count == 0)
+            {
+                return new List<XYZ>();
+            }
+
+            List<List<XYZ>> chains = BuildAdaptPathChains(pathSegments);
+            if (chains.Count == 0)
+            {
+                return new List<XYZ>();
+            }
+
+            List<XYZ> merged = chains[0];
+            for (int i = 1; i < chains.Count; i++)
+            {
+                merged = MergeAdaptPathChains(merged, chains[i]);
+            }
+
+            return CompactAdaptPoints(merged);
+        }
+
+        private static AdaptProfileRenderSettings GetDefaultAdaptProfileRenderSettings()
+        {
+            return new AdaptProfileRenderSettings
+            {
+                DraftingMarginFt = MmToFeet(500.0),
+                DraftingTargetWidthFt = MmToFeet(8000.0),
+                DraftingTargetHeightFt = MmToFeet(2000.0),
+                DraftingMinimumWidthFt = MmToFeet(2000.0),
+                DraftingMinimumHeightFt = MmToFeet(600.0),
+                MinimumScale = 0.1,
+                MaximumScale = 5.0,
+                DraftingMinimumVisibleBandFt = MmToFeet(25.0),
+                TitleOffsetFt = MmToFeet(500.0),
+                HeaderLineGapFt = MmToFeet(180.0),
+                HeaderNoteGapFt = MmToFeet(260.0),
+                SummaryColumnOffsetFt = MmToFeet(3200.0),
+                HeaderPrimaryColumnWidthFt = MmToFeet(3000.0),
+                HeaderSecondaryColumnWidthFt = MmToFeet(2600.0),
+                HeaderTertiaryColumnWidthFt = MmToFeet(2200.0),
+                FooterNoteWidthFt = MmToFeet(5200.0),
+                AxisLabelOffsetFt = MmToFeet(200.0),
+                AxisValueOffsetFt = MmToFeet(40.0),
+                StartEndLabelOffsetFt = MmToFeet(420.0),
+                EndLabelInsetFt = MmToFeet(900.0),
+                MarkerHalfSizeFt = MmToFeet(120.0),
+                MarkerTextOffsetFt = MmToFeet(120.0),
+                ActiveViewMarginFt = MmToFeet(500.0),
+                KeyPointTableOffsetFt = MmToFeet(1400.0),
+                KeyPointRowGapFt = MmToFeet(180.0),
+                BubbleRadiusFt = MmToFeet(180.0),
+                BubbleColumnOffsetFt = MmToFeet(700.0),
+                BubbleTopOffsetFt = MmToFeet(900.0),
+                BubbleLeaderDropFt = MmToFeet(260.0),
+                BubbleMinimumSeparationFt = MmToFeet(1800.0),
+                MarkerRowGapFt = MmToFeet(160.0),
+                MarkerSideOffsetFt = MmToFeet(240.0),
+                CalloutRailOffsetFt = MmToFeet(520.0),
+                CalloutTopPaddingFt = MmToFeet(320.0),
+                CalloutBottomPaddingFt = MmToFeet(240.0),
+                CalloutTextWidthFt = MmToFeet(1500.0),
+                CalloutMinimumAnchorClearanceFt = MmToFeet(260.0),
+                CalloutTextSeparationFt = MmToFeet(520.0),
+                CalloutHorizontalInfluenceFt = MmToFeet(2600.0),
+                DimensionChainOffsetFt = MmToFeet(700.0),
+                DimensionChainRowGapFt = MmToFeet(260.0),
+                TargetStationDivisions = 4,
+                TargetElevationDivisions = 3
+            };
+        }
+
+        private static void DrawAdaptProfileDraftingView(
+            Document doc,
+            ViewDrafting view,
+            TextNoteType textType,
+            string groupKey,
+            string sourceToken,
+            IList<XYZ> path,
+            IEnumerable<AdaptTendonProfileSegmentPayload> segments,
+            string sourcePath,
+            string shopMark)
+        {
+            if (doc == null || view == null || path == null || path.Count < 2)
+            {
+                return;
+            }
+
+            // Drafting views are the current "profile package" output for ADAPT-style review in Revit.
+            AdaptProfileRenderSettings settings = GetDefaultAdaptProfileRenderSettings();
+            GraphicsStyle lineStyle = EnsureAdaptTendonLineStyle(doc);
+            List<double> stations = BuildAdaptProfileStations(path);
+            double minStation = stations.Min();
+            double maxStation = stations.Max();
+            double minElevation = path.Min(p => p.Z);
+            double maxElevation = path.Max(p => p.Z);
+            double widthFt = Math.Max(settings.DraftingMinimumWidthFt, maxStation - minStation);
+            double heightFt = Math.Max(settings.DraftingMinimumHeightFt, maxElevation - minElevation);
+            double leftFt = settings.DraftingMarginFt;
+            double bottomFt = settings.DraftingMarginFt;
+            double scaleX = widthFt > 1.0e-9 ? (settings.DraftingTargetWidthFt / widthFt) : 1.0;
+            double scaleY = heightFt > 1.0e-9 ? (settings.DraftingTargetHeightFt / heightFt) : 1.0;
+            double scale = Math.Max(settings.MinimumScale, Math.Min(settings.MaximumScale, Math.Min(scaleX, scaleY)));
+            double baseYFt = bottomFt;
+            double titleYFt = baseYFt + (heightFt * scale) + settings.TitleOffsetFt;
+            double diameterFt = GetAdaptProfileBandDiameterFt(path, segments);
+            List<AdaptTendonProfileSegmentPayload> segmentList = (segments ?? Enumerable.Empty<AdaptTendonProfileSegmentPayload>())
+                .Where(x => x != null)
+                .ToList();
+            AdaptTendonProfileSegmentPayload metadataSegment = segmentList.FirstOrDefault();
+            var displayPath = new List<XYZ>();
+            for (int i = 0; i < path.Count; i++)
+            {
+                displayPath.Add(new XYZ(
+                    leftFt + ((stations[i] - minStation) * scale),
+                    baseYFt + ((path[i].Z - minElevation) * scale),
+                    0.0));
+            }
+
+            DrawAdaptProfileBand(
+                doc,
+                view,
+                lineStyle,
+                displayPath,
+                Math.Max(settings.DraftingMinimumVisibleBandFt, diameterFt * scale),
+                metadataSegment,
+                sourcePath,
+                "ADAPT Tendon Profile View");
+
+            DrawAdaptProfileGrid(doc, view, textType, settings, leftFt, baseYFt, widthFt * scale, heightFt * scale, minStation, maxStation, minElevation, maxElevation);
+            DrawAdaptProfilePointMarkers(doc, view, lineStyle, textType, settings, displayPath, stations, minStation, groupKey);
+            AddAdaptDraftingLine(doc, view, leftFt, baseYFt, leftFt + (widthFt * scale), baseYFt);
+            AddAdaptDraftingLine(doc, view, leftFt, baseYFt, leftFt, baseYFt + (heightFt * scale));
+
+            double profileHeaderTopY = titleYFt + settings.HeaderLineGapFt;
+            AddAdaptDraftingTextBlock(
+                doc,
+                view,
+                textType,
+                leftFt,
+                profileHeaderTopY,
+                settings.HeaderLineGapFt,
+                new[]
+                {
+                    groupKey,
+                    "Shop Mark: " + shopMark,
+                    "Source: " + sourceToken,
+                    "Rendered tendon dia: " + FormatShopDrawingLength(diameterFt)
+                },
+                settings.HeaderPrimaryColumnWidthFt);
+            AddAdaptDraftingTextBlock(
+                doc,
+                view,
+                textType,
+                leftFt + settings.SummaryColumnOffsetFt,
+                profileHeaderTopY,
+                settings.HeaderLineGapFt,
+                new[]
+                {
+                    "Length: " + FormatShopDrawingLength(maxStation - minStation),
+                    "High-Low: " + FormatShopDrawingLength(maxElevation - minElevation)
+                }.Concat(BuildAdaptProfileMetadataSummaryLines(metadataSegment, segmentList, diameterFt)),
+                settings.HeaderSecondaryColumnWidthFt);
+            AddAdaptDraftingText(doc, view, textType, leftFt, baseYFt - settings.AxisLabelOffsetFt, "Station");
+            AddAdaptDraftingText(doc, view, textType, leftFt - MmToFeet(350.0), baseYFt + (heightFt * scale), "Elevation");
+            AddAdaptDraftingText(doc, view, textType, leftFt, baseYFt - settings.StartEndLabelOffsetFt, "Start " + FormatShopDrawingLength(stations.First() - minStation));
+            AddAdaptDraftingText(
+                doc,
+                view,
+                textType,
+                leftFt + (widthFt * scale),
+                baseYFt - settings.StartEndLabelOffsetFt,
+                "End " + FormatShopDrawingLength(stations.Last() - minStation),
+                AdaptDraftingTextAnchor.Right);
+            AddAdaptDraftingText(
+                doc,
+                view,
+                textType,
+                leftFt - MmToFeet(220.0),
+                baseYFt + (heightFt * scale) - settings.AxisValueOffsetFt,
+                FormatShopDrawingLength(maxElevation),
+                AdaptDraftingTextAnchor.Right);
+            AddAdaptDraftingText(
+                doc,
+                view,
+                textType,
+                leftFt - MmToFeet(220.0),
+                baseYFt - settings.AxisValueOffsetFt,
+                FormatShopDrawingLength(minElevation),
+                AdaptDraftingTextAnchor.Right);
+            DrawAdaptProfileDimensionChains(doc, view, textType, settings, displayPath, stations, baseYFt);
+            DrawAdaptProfileShopMarkBubbles(doc, view, textType, lineStyle, settings, displayPath, shopMark, profileHeaderTopY + settings.BubbleTopOffsetFt);
+            DrawAdaptProfileKeyPointTable(doc, view, textType, settings, leftFt + (widthFt * scale) + settings.KeyPointTableOffsetFt, titleYFt, stations, path);
+        }
+
+        private static int DrawAdaptProfileDetailGroup(
+            Document doc,
+            View view,
+            GraphicsStyle lineStyle,
+            IEnumerable<AdaptTendonProfileSegmentPayload> segments,
+            string sourcePath,
+            string shopMark)
+        {
+            if (doc == null || view == null)
+            {
+                return 0;
+            }
+
+            List<AdaptTendonProfileSegmentPayload> groupSegments = (segments ?? Enumerable.Empty<AdaptTendonProfileSegmentPayload>())
+                .Where(x => x != null)
+                .ToList();
+            if (groupSegments.Count == 0)
+            {
+                return 0;
+            }
+
+            List<XYZ> sourcePathPoints = BuildAdaptOrderedPathPoints(groupSegments);
+            if (sourcePathPoints.Count < 2)
+            {
+                return 0;
+            }
+
+            List<double> stations = BuildAdaptProfileStations(sourcePathPoints);
+            double minStation = stations.Min();
+            double minElevation = sourcePathPoints.Min(p => p.Z);
+            XYZ origin = view.Origin ?? XYZ.Zero;
+            XYZ right = view.RightDirection ?? XYZ.BasisX;
+            XYZ up = view.UpDirection ?? XYZ.BasisY;
+            AdaptProfileRenderSettings settings = GetDefaultAdaptProfileRenderSettings();
+            double marginFt = settings.ActiveViewMarginFt;
+            var detailPath = new List<XYZ>();
+            for (int i = 0; i < sourcePathPoints.Count; i++)
+            {
+                detailPath.Add(
+                    origin
+                        .Add(right.Multiply(marginFt + (stations[i] - minStation)))
+                        .Add(up.Multiply(marginFt + (sourcePathPoints[i].Z - minElevation))));
+            }
+
+            return DrawAdaptProfileBand(
+                doc,
+                view,
+                lineStyle,
+                detailPath,
+                GetAdaptProfileBandDiameterFt(sourcePathPoints, groupSegments),
+                groupSegments[0],
+                sourcePath,
+                string.IsNullOrWhiteSpace(shopMark) ? "ADAPT Tendon Profile" : "ADAPT Tendon Profile | Shop=" + shopMark);
+        }
+
+        private static void DrawAdaptProfileGrid(
+            Document doc,
+            ViewDrafting view,
+            TextNoteType textType,
+            AdaptProfileRenderSettings settings,
+            double leftFt,
+            double bottomFt,
+            double widthFt,
+            double heightFt,
+            double minStation,
+            double maxStation,
+            double minElevation,
+            double maxElevation)
+        {
+            if (doc == null || view == null || widthFt <= 1.0e-6 || heightFt <= 1.0e-6)
+            {
+                return;
+            }
+
+            double stationRange = Math.Max(1.0e-6, maxStation - minStation);
+            double elevationRange = Math.Max(1.0e-6, maxElevation - minElevation);
+            double stationStep = GetAdaptNiceStep(stationRange / Math.Max(1.0, settings?.TargetStationDivisions ?? 4.0));
+            double elevationStep = GetAdaptNiceStep(elevationRange / Math.Max(1.0, settings?.TargetElevationDivisions ?? 3.0));
+
+            for (double station = Math.Ceiling(minStation / stationStep) * stationStep; station <= maxStation + (stationStep * 0.25); station += stationStep)
+            {
+                double x = leftFt + ((station - minStation) / stationRange) * widthFt;
+                AddAdaptDraftingLine(doc, view, x, bottomFt, x, bottomFt + heightFt);
+                AddAdaptDraftingText(
+                    doc,
+                    view,
+                    textType,
+                    x,
+                    bottomFt - MmToFeet(650.0),
+                    FormatShopDrawingLength(station - minStation),
+                    AdaptDraftingTextAnchor.Center);
+            }
+
+            for (double elevation = Math.Ceiling(minElevation / elevationStep) * elevationStep; elevation <= maxElevation + (elevationStep * 0.25); elevation += elevationStep)
+            {
+                double y = bottomFt + ((elevation - minElevation) / elevationRange) * heightFt;
+                AddAdaptDraftingLine(doc, view, leftFt, y, leftFt + widthFt, y);
+                AddAdaptDraftingText(
+                    doc,
+                    view,
+                    textType,
+                    leftFt - MmToFeet(220.0),
+                    y - MmToFeet(80.0),
+                    FormatShopDrawingLength(elevation),
+                    AdaptDraftingTextAnchor.Right);
+            }
+        }
+
+        private static void DrawAdaptProfilePointMarkers(
+            Document doc,
+            View view,
+            GraphicsStyle lineStyle,
+            TextNoteType textType,
+            AdaptProfileRenderSettings settings,
+            IList<XYZ> displayPath,
+            IList<double> stations,
+            double minStation,
+            string groupKey)
+        {
+            if (doc == null || view == null || displayPath == null || stations == null || displayPath.Count != stations.Count || displayPath.Count == 0)
+            {
+                return;
+            }
+
+            int highestIndex = 0;
+            int lowestIndex = 0;
+            for (int i = 1; i < displayPath.Count; i++)
+            {
+                if (displayPath[i].Y > displayPath[highestIndex].Y)
+                {
+                    highestIndex = i;
+                }
+
+                if (displayPath[i].Y < displayPath[lowestIndex].Y)
+                {
+                    lowestIndex = i;
+                }
+            }
+
+            var markerIndexes = new HashSet<int> { 0, displayPath.Count - 1, highestIndex, lowestIndex };
+            List<int> orderedIndexes = markerIndexes
+                .OrderBy(x => displayPath[x].X)
+                .ThenBy(x => displayPath[x].Y)
+                .ToList();
+            double midX = (displayPath.Min(p => p.X) + displayPath.Max(p => p.X)) * 0.5;
+            double rowGapFt = settings?.MarkerRowGapFt ?? MmToFeet(160.0);
+            double calloutClearanceFt = settings?.CalloutMinimumAnchorClearanceFt ?? MmToFeet(260.0);
+            double blockHeightFt = rowGapFt * 2.0;
+            double minimumTextSeparationFt = Math.Max(
+                settings?.CalloutTextSeparationFt ?? MmToFeet(520.0),
+                blockHeightFt + MmToFeet(120.0));
+            double horizontalInfluenceFt = settings?.CalloutHorizontalInfluenceFt ?? MmToFeet(2600.0);
+            double minCalloutY = displayPath.Min(p => p.Y) - (settings?.CalloutBottomPaddingFt ?? MmToFeet(240.0)) + (blockHeightFt * 0.5);
+            double maxCalloutY = displayPath.Max(p => p.Y) + (settings?.CalloutTopPaddingFt ?? MmToFeet(320.0)) - (blockHeightFt * 0.5);
+            double railOffsetFt = settings?.CalloutRailOffsetFt ?? MmToFeet(520.0);
+            double leftRailX = displayPath.Min(p => p.X) - railOffsetFt;
+            double rightRailX = displayPath.Max(p => p.X) + railOffsetFt;
+            var rightTextCenters = new List<XYZ>();
+            var leftTextCenters = new List<XYZ>();
+            for (int order = 0; order < orderedIndexes.Count; order++)
+            {
+                int index = orderedIndexes[order];
+                XYZ point = displayPath[index];
+                DrawAdaptCrossMarker(doc, view, lineStyle, point, settings?.MarkerHalfSizeFt ?? MmToFeet(120.0));
+
+                string label;
+                if (index == 0)
+                {
+                    label = "Start";
+                }
+                else if (index == displayPath.Count - 1)
+                {
+                    label = "End";
+                }
+                else if (index == highestIndex)
+                {
+                    label = "High";
+                }
+                else if (index == lowestIndex)
+                {
+                    label = "Low";
+                }
+                else
+                {
+                    label = "Pt";
+                }
+
+                bool placeRight = point.X <= midX;
+                double preferredTextX = placeRight ? rightRailX : leftRailX;
+                double verticalBiasFt = (order % 2 == 0 ? 1.0 : -1.0) * rowGapFt;
+                double preferredTextY = point.Y + Math.Max(settings?.MarkerTextOffsetFt ?? MmToFeet(120.0), calloutClearanceFt) + verticalBiasFt;
+                IList<XYZ> labelCenters = placeRight ? rightTextCenters : leftTextCenters;
+                XYZ textCenter = BuildAdaptAlignedTextCenter(
+                    point,
+                    preferredTextX,
+                    preferredTextY,
+                    rowGapFt,
+                    minimumTextSeparationFt,
+                    horizontalInfluenceFt,
+                    labelCenters,
+                    minCalloutY,
+                    maxCalloutY,
+                    calloutClearanceFt);
+                labelCenters.Add(textCenter);
+                double textX = textCenter.X;
+                double blockTopY = textCenter.Y + rowGapFt;
+                AddAdaptDraftingTextBlock(
+                    doc,
+                    view,
+                    textType,
+                    textX,
+                    blockTopY,
+                    rowGapFt,
+                    new[]
+                    {
+                        label,
+                        "Sta " + FormatShopDrawingLength(stations[index] - minStation),
+                        "El " + FormatShopDrawingLength(path[index].Z)
+                    },
+                    settings?.CalloutTextWidthFt ?? MmToFeet(1500.0),
+                    placeRight ? AdaptDraftingTextAnchor.Left : AdaptDraftingTextAnchor.Right);
+                XYZ leaderTarget = new XYZ(textCenter.X, textCenter.Y, point.Z);
+                CreateAdaptDetailCurve(doc, view, lineStyle, point, leaderTarget, null, null, null);
+            }
+        }
+
+        private static void DrawAdaptCrossMarker(
+            Document doc,
+            View view,
+            GraphicsStyle lineStyle,
+            XYZ center,
+            double halfSizeFt)
+        {
+            if (center == null || halfSizeFt <= 1.0e-6)
+            {
+                return;
+            }
+
+            CreateAdaptDetailCurve(
+                doc,
+                view,
+                lineStyle,
+                new XYZ(center.X - halfSizeFt, center.Y - halfSizeFt, center.Z),
+                new XYZ(center.X + halfSizeFt, center.Y + halfSizeFt, center.Z),
+                null,
+                null,
+                null);
+            CreateAdaptDetailCurve(
+                doc,
+                view,
+                lineStyle,
+                new XYZ(center.X - halfSizeFt, center.Y + halfSizeFt, center.Z),
+                new XYZ(center.X + halfSizeFt, center.Y - halfSizeFt, center.Z),
+                null,
+                null,
+                null);
+        }
+
+        private static void DrawAdaptProfileKeyPointTable(
+            Document doc,
+            View view,
+            TextNoteType textType,
+            AdaptProfileRenderSettings settings,
+            double xFt,
+            double topYFt,
+            IList<double> stations,
+            IList<XYZ> path)
+        {
+            if (doc == null || view == null || textType == null || stations == null || path == null || stations.Count != path.Count || stations.Count == 0)
+            {
+                return;
+            }
+
+            int highIndex = 0;
+            int lowIndex = 0;
+            for (int i = 1; i < path.Count; i++)
+            {
+                if (path[i].Z > path[highIndex].Z)
+                {
+                    highIndex = i;
+                }
+
+                if (path[i].Z < path[lowIndex].Z)
+                {
+                    lowIndex = i;
+                }
+            }
+
+            AddAdaptDraftingText(doc, view, textType, xFt, topYFt, "Key Points");
+            var rows = new List<Tuple<string, int>>
+            {
+                Tuple.Create("Start", 0),
+                Tuple.Create("Low", lowIndex),
+                Tuple.Create("High", highIndex),
+                Tuple.Create("End", path.Count - 1)
+            };
+
+            double rowGapFt = settings?.KeyPointRowGapFt ?? MmToFeet(180.0);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            double currentY = topYFt - rowGapFt;
+            foreach (Tuple<string, int> entry in rows)
+            {
+                string key = entry.Item1 + "|" + entry.Item2.ToString(CultureInfo.InvariantCulture);
+                if (!seen.Add(key))
+                {
+                    continue;
+                }
+
+                int index = Math.Max(0, Math.Min(path.Count - 1, entry.Item2));
+                currentY = AddAdaptDraftingTextBlock(
+                    doc,
+                    view,
+                    textType,
+                    xFt,
+                    currentY,
+                    rowGapFt,
+                    new[]
+                    {
+                        entry.Item1 + " | Sta " + FormatShopDrawingLength(stations[index]),
+                        "El " + FormatShopDrawingLength(path[index].Z)
+                    },
+                    settings?.HeaderSecondaryColumnWidthFt ?? MmToFeet(2200.0)) - MmToFeet(70.0);
+            }
+        }
+
+        private static void DrawAdaptProfileShopMarkBubbles(
+            Document doc,
+            View view,
+            TextNoteType textType,
+            GraphicsStyle lineStyle,
+            AdaptProfileRenderSettings settings,
+            IList<XYZ> displayPath,
+            string shopMark,
+            double topYFt)
+        {
+            if (doc == null || view == null || textType == null || string.IsNullOrWhiteSpace(shopMark) || displayPath == null || displayPath.Count < 2)
+            {
+                return;
+            }
+
+            double radiusFt = settings?.BubbleRadiusFt ?? MmToFeet(180.0);
+            double sideOffsetFt = settings?.BubbleColumnOffsetFt ?? MmToFeet(700.0);
+            double leaderDropFt = settings?.BubbleLeaderDropFt ?? MmToFeet(260.0);
+            double minimumSeparationFt = settings?.BubbleMinimumSeparationFt ?? MmToFeet(1800.0);
+
+            XYZ startPoint = displayPath[0];
+            XYZ endPoint = displayPath[displayPath.Count - 1];
+            double startX = startPoint.X - sideOffsetFt;
+            double endX = endPoint.X + sideOffsetFt;
+            double currentSeparation = endX - startX;
+            if (currentSeparation < minimumSeparationFt)
+            {
+                double halfExtra = (minimumSeparationFt - currentSeparation) * 0.5;
+                startX -= halfExtra;
+                endX += halfExtra;
+            }
+
+            XYZ startBubble = new XYZ(startX, topYFt, 0.0);
+            XYZ endBubble = new XYZ(endX, topYFt, 0.0);
+            var placedCenters = new List<XYZ>();
+            startBubble = BuildAdaptAlignedBubbleCenter(
+                startPoint,
+                startBubble.X,
+                startBubble.Y,
+                settings?.MarkerRowGapFt ?? MmToFeet(160.0),
+                settings?.BubbleMinimumSeparationFt ?? MmToFeet(1800.0),
+                MmToFeet(2400.0),
+                placedCenters);
+            placedCenters.Add(startBubble);
+            endBubble = BuildAdaptAlignedBubbleCenter(
+                endPoint,
+                endBubble.X,
+                endBubble.Y,
+                settings?.MarkerRowGapFt ?? MmToFeet(160.0),
+                settings?.BubbleMinimumSeparationFt ?? MmToFeet(1800.0),
+                MmToFeet(2400.0),
+                placedCenters);
+
+            DrawAdaptBubble(doc, view, textType, lineStyle, startBubble, radiusFt, "S");
+            DrawAdaptBubble(doc, view, textType, lineStyle, endBubble, radiusFt, "E");
+            AddAdaptDraftingText(
+                doc,
+                view,
+                textType,
+                startBubble.X,
+                startBubble.Y + radiusFt + MmToFeet(80.0),
+                shopMark,
+                AdaptDraftingTextAnchor.Center);
+            AddAdaptDraftingText(
+                doc,
+                view,
+                textType,
+                endBubble.X,
+                endBubble.Y + radiusFt + MmToFeet(80.0),
+                shopMark,
+                AdaptDraftingTextAnchor.Center);
+
+            XYZ startElbow = new XYZ(startPoint.X, startBubble.Y - leaderDropFt, 0.0);
+            XYZ endElbow = new XYZ(endPoint.X, endBubble.Y - leaderDropFt, 0.0);
+            CreateAdaptDetailCurve(doc, view, lineStyle, startBubble, startElbow, null, null, null);
+            CreateAdaptDetailCurve(doc, view, lineStyle, startElbow, startPoint, null, null, null);
+            CreateAdaptDetailCurve(doc, view, lineStyle, endBubble, endElbow, null, null, null);
+            CreateAdaptDetailCurve(doc, view, lineStyle, endElbow, endPoint, null, null, null);
+        }
+
+        private static XYZ BuildAdaptAlignedBubbleCenter(
+            XYZ anchor,
+            double preferredX,
+            double preferredY,
+            double rowGapFt,
+            double minimumSeparationFt,
+            double horizontalInfluenceFt,
+            IList<XYZ> placedCenters)
+        {
+            double safeRowGapFt = Math.Max(MmToFeet(120.0), rowGapFt);
+            double safeMinSeparationFt = Math.Max(MmToFeet(180.0), minimumSeparationFt);
+            double safeHorizontalInfluenceFt = Math.Max(MmToFeet(800.0), horizontalInfluenceFt);
+            for (int step = 0; step < 12; step++)
+            {
+                foreach (double direction in GetAdaptBubbleLayoutDirections(step))
+                {
+                    double candidateY = preferredY + (direction * safeRowGapFt);
+                    XYZ candidate = new XYZ(preferredX, candidateY, 0.0);
+                    if (CanPlaceAdaptBubbleCenter(candidate, placedCenters, safeMinSeparationFt, safeHorizontalInfluenceFt))
+                    {
+                        return candidate;
+                    }
+                }
+            }
+
+            return new XYZ(preferredX, preferredY + (12 * safeRowGapFt), 0.0);
+        }
+
+        private static XYZ BuildAdaptAlignedTextCenter(
+            XYZ anchor,
+            double preferredX,
+            double preferredY,
+            double rowGapFt,
+            double minimumSeparationFt,
+            double horizontalInfluenceFt,
+            IList<XYZ> placedCenters)
+        {
+            return BuildAdaptAlignedBubbleCenter(
+                anchor,
+                preferredX,
+                preferredY,
+                rowGapFt,
+                minimumSeparationFt,
+                horizontalInfluenceFt,
+                placedCenters);
+        }
+
+        private static XYZ BuildAdaptAlignedTextCenter(
+            XYZ anchor,
+            double preferredX,
+            double preferredY,
+            double rowGapFt,
+            double minimumSeparationFt,
+            double horizontalInfluenceFt,
+            IList<XYZ> placedCenters,
+            double minY,
+            double maxY)
+        {
+            return BuildAdaptAlignedTextCenter(
+                anchor,
+                preferredX,
+                preferredY,
+                rowGapFt,
+                minimumSeparationFt,
+                horizontalInfluenceFt,
+                placedCenters,
+                minY,
+                maxY,
+                0.0);
+        }
+
+        private static XYZ BuildAdaptAlignedTextCenter(
+            XYZ anchor,
+            double preferredX,
+            double preferredY,
+            double rowGapFt,
+            double minimumSeparationFt,
+            double horizontalInfluenceFt,
+            IList<XYZ> placedCenters,
+            double minY,
+            double maxY,
+            double minimumAnchorClearanceFt)
+        {
+            double safeMinY = Math.Min(minY, maxY);
+            double safeMaxY = Math.Max(minY, maxY);
+            double safeRowGapFt = Math.Max(MmToFeet(120.0), rowGapFt);
+            double safeMinSeparationFt = Math.Max(MmToFeet(180.0), minimumSeparationFt);
+            double safeHorizontalInfluenceFt = Math.Max(MmToFeet(800.0), horizontalInfluenceFt);
+            double safeAnchorClearanceFt = Math.Max(0.0, minimumAnchorClearanceFt);
+            if (safeMaxY - safeMinY < MmToFeet(40.0))
+            {
+                double fallbackY = Math.Max(safeMinY, Math.Min(safeMaxY, preferredY));
+                return new XYZ(preferredX, fallbackY, 0.0);
+            }
+
+            for (int step = 0; step < 12; step++)
+            {
+                foreach (double direction in GetAdaptBubbleLayoutDirections(step))
+                {
+                    double candidateY = preferredY + (direction * safeRowGapFt);
+                    candidateY = Math.Max(safeMinY, Math.Min(safeMaxY, candidateY));
+                    XYZ candidate = new XYZ(preferredX, candidateY, 0.0);
+                    if (anchor != null && Math.Abs(candidateY - anchor.Y) < safeAnchorClearanceFt)
+                    {
+                        continue;
+                    }
+
+                    if (CanPlaceAdaptBubbleCenter(candidate, placedCenters, safeMinSeparationFt, safeHorizontalInfluenceFt))
+                    {
+                        return candidate;
+                    }
+                }
+            }
+
+            double clampedY = Math.Max(safeMinY, Math.Min(safeMaxY, preferredY));
+            return new XYZ(preferredX, clampedY, 0.0);
+        }
+
+        private static IEnumerable<double> GetAdaptBubbleLayoutDirections(int step)
+        {
+            if (step <= 0)
+            {
+                yield return 0.0;
+                yield break;
+            }
+
+            yield return step;
+            yield return -step;
+        }
+
+        private static bool CanPlaceAdaptBubbleCenter(
+            XYZ candidate,
+            IList<XYZ> placedCenters,
+            double minimumSeparationFt,
+            double horizontalInfluenceFt)
+        {
+            foreach (XYZ placed in placedCenters ?? Enumerable.Empty<XYZ>())
+            {
+                if (placed == null)
+                {
+                    continue;
+                }
+
+                if (Math.Abs(candidate.X - placed.X) > horizontalInfluenceFt)
+                {
+                    continue;
+                }
+
+                if (Math.Abs(candidate.Y - placed.Y) < minimumSeparationFt)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static void DrawAdaptBubble(
+            Document doc,
+            View view,
+            TextNoteType textType,
+            GraphicsStyle lineStyle,
+            XYZ center,
+            double radiusFt,
+            string text)
+        {
+            if (doc == null || view == null || center == null || radiusFt <= 1.0e-6)
+            {
+                return;
+            }
+
+            try
+            {
+                CurveElement curve = doc.Create.NewDetailCurve(
+                    view,
+                    Arc.Create(
+                        new XYZ(center.X - radiusFt, center.Y, 0.0),
+                        new XYZ(center.X + radiusFt, center.Y, 0.0),
+                        new XYZ(center.X, center.Y + radiusFt, 0.0)));
+                if (lineStyle != null)
+                {
+                    curve.LineStyle = lineStyle;
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                CurveElement curve = doc.Create.NewDetailCurve(
+                    view,
+                    Arc.Create(
+                        new XYZ(center.X + radiusFt, center.Y, 0.0),
+                        new XYZ(center.X - radiusFt, center.Y, 0.0),
+                        new XYZ(center.X, center.Y - radiusFt, 0.0)));
+                if (lineStyle != null)
+                {
+                    curve.LineStyle = lineStyle;
+                }
+            }
+            catch
+            {
+            }
+
+            AddAdaptDraftingText(doc, view, textType, center.X - (radiusFt * 0.28), center.Y - (radiusFt * 0.22), text);
+        }
+
+        private static void DrawAdaptProfileDimensionChains(
+            Document doc,
+            ViewDrafting view,
+            TextNoteType textType,
+            AdaptProfileRenderSettings settings,
+            IList<XYZ> displayPath,
+            IList<double> stations,
+            double baseYFt)
+        {
+            if (doc == null || view == null || textType == null || displayPath == null || stations == null || displayPath.Count != stations.Count || displayPath.Count < 2)
+            {
+                return;
+            }
+
+            int highIndex = 0;
+            int lowIndex = 0;
+            for (int i = 1; i < displayPath.Count; i++)
+            {
+                if (displayPath[i].Y > displayPath[highIndex].Y)
+                {
+                    highIndex = i;
+                }
+
+                if (displayPath[i].Y < displayPath[lowIndex].Y)
+                {
+                    lowIndex = i;
+                }
+            }
+
+            List<int> keyIndexes = new[] { 0, lowIndex, highIndex, displayPath.Count - 1 }
+                .Distinct()
+                .OrderBy(i => stations[i])
+                .ToList();
+            if (keyIndexes.Count < 2)
+            {
+                return;
+            }
+
+            double chainY = baseYFt - (settings?.DimensionChainOffsetFt ?? MmToFeet(700.0));
+            for (int i = 1; i < keyIndexes.Count; i++)
+            {
+                int aIndex = keyIndexes[i - 1];
+                int bIndex = keyIndexes[i];
+                AddSelectedElementDimensionLine(
+                    doc,
+                    view,
+                    textType,
+                    displayPath[aIndex].X,
+                    chainY,
+                    displayPath[bIndex].X,
+                    chainY,
+                    FormatShopDrawingLength(stations[bIndex] - stations[aIndex]));
+            }
+
+            if (keyIndexes.Count >= 2)
+            {
+                double overallY = chainY - (settings?.DimensionChainRowGapFt ?? MmToFeet(260.0));
+                AddSelectedElementDimensionLine(
+                    doc,
+                    view,
+                    textType,
+                    displayPath[keyIndexes.First()].X,
+                    overallY,
+                    displayPath[keyIndexes.Last()].X,
+                    overallY,
+                    "Overall " + FormatShopDrawingLength(stations[keyIndexes.Last()] - stations[keyIndexes.First()]));
+            }
+        }
+
+        private static List<double> BuildAdaptProfileStations(IList<XYZ> path)
+        {
+            var stations = new List<double>();
+            if (path == null || path.Count == 0)
+            {
+                return stations;
+            }
+
+            double station = 0.0;
+            stations.Add(station);
+            for (int i = 1; i < path.Count; i++)
+            {
+                XYZ a = path[i - 1];
+                XYZ b = path[i];
+                double dx = b.X - a.X;
+                double dy = b.Y - a.Y;
+                station += Math.Sqrt((dx * dx) + (dy * dy));
+                stations.Add(station);
+            }
+
+            return stations;
+        }
+
+        private static void AddAdaptDraftingLine(Document doc, View view, double x0, double y0, double x1, double y1)
+        {
+            if (doc == null || view == null)
+            {
+                return;
+            }
+
+            try
+            {
+                doc.Create.NewDetailCurve(view, Line.CreateBound(new XYZ(x0, y0, 0.0), new XYZ(x1, y1, 0.0)));
+            }
+            catch
+            {
+            }
+        }
+
+        private static double AddAdaptDraftingTextBlock(
+            Document doc,
+            View view,
+            TextNoteType textType,
+            double xFt,
+            double topYFt,
+            double rowGapFt,
+            IEnumerable<string> lines)
+        {
+            return AddAdaptDraftingTextBlock(
+                doc,
+                view,
+                textType,
+                xFt,
+                topYFt,
+                rowGapFt,
+                lines,
+                0.0,
+                AdaptDraftingTextAnchor.Left);
+        }
+
+        private static double AddAdaptDraftingTextBlock(
+            Document doc,
+            View view,
+            TextNoteType textType,
+            double xFt,
+            double topYFt,
+            double rowGapFt,
+            IEnumerable<string> lines,
+            double maxWidthFt)
+        {
+            return AddAdaptDraftingTextBlock(
+                doc,
+                view,
+                textType,
+                xFt,
+                topYFt,
+                rowGapFt,
+                lines,
+                maxWidthFt,
+                AdaptDraftingTextAnchor.Left);
+        }
+
+        private static double AddAdaptDraftingTextBlock(
+            Document doc,
+            View view,
+            TextNoteType textType,
+            double xFt,
+            double topYFt,
+            double rowGapFt,
+            IEnumerable<string> lines,
+            double maxWidthFt,
+            AdaptDraftingTextAnchor anchor)
+        {
+            double safeRowGapFt = Math.Max(MmToFeet(120.0), rowGapFt);
+            double currentY = topYFt;
+            bool wroteAny = false;
+            foreach (string line in BuildAdaptDraftingWrappedLines(lines, maxWidthFt))
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                AddAdaptDraftingText(doc, view, textType, xFt, currentY, line, anchor);
+                currentY -= safeRowGapFt;
+                wroteAny = true;
+            }
+
+            return wroteAny ? currentY + safeRowGapFt : topYFt;
+        }
+
+        private static void AddAdaptDraftingText(
+            Document doc,
+            View view,
+            TextNoteType textType,
+            double x,
+            double y,
+            string text,
+            AdaptDraftingTextAnchor anchor)
+        {
+            double resolvedX = x;
+            double estimatedWidthFt = EstimateAdaptDraftingTextWidthFt(text);
+            switch (anchor)
+            {
+                case AdaptDraftingTextAnchor.Center:
+                    resolvedX -= estimatedWidthFt * 0.5;
+                    break;
+                case AdaptDraftingTextAnchor.Right:
+                    resolvedX -= estimatedWidthFt;
+                    break;
+            }
+
+            AddAdaptDraftingText(doc, view, textType, resolvedX, y, text);
+        }
+
+        private static void AddAdaptDraftingText(Document doc, View view, TextNoteType textType, double x, double y, string text)
+        {
+            if (doc == null || view == null || textType == null || string.IsNullOrWhiteSpace(text))
+            {
+                return;
+            }
+
+            try
+            {
+                TextNote.Create(doc, view.Id, new XYZ(x, y, 0.0), text, textType.Id);
+            }
+            catch
+            {
+            }
+        }
+
+        private static double EstimateAdaptDraftingTextWidthFt(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return 0.0;
+            }
+
+            int length = Math.Max(1, text.Trim().Length);
+            return MmToFeet(42.0 * length);
+        }
+
+        private static IEnumerable<string> BuildAdaptDraftingWrappedLines(IEnumerable<string> lines, double maxWidthFt)
+        {
+            foreach (string line in lines ?? Enumerable.Empty<string>())
+            {
+                foreach (string wrapped in WrapAdaptDraftingLine(line, maxWidthFt))
+                {
+                    if (!string.IsNullOrWhiteSpace(wrapped))
+                    {
+                        yield return wrapped;
+                    }
+                }
+            }
+        }
+
+        private static IEnumerable<string> WrapAdaptDraftingLine(string text, double maxWidthFt)
+        {
+            string normalized = NormalizeAdaptDraftingLine(text);
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                yield break;
+            }
+
+            if (maxWidthFt <= 1.0e-6 || EstimateAdaptDraftingTextWidthFt(normalized) <= maxWidthFt)
+            {
+                yield return normalized;
+                yield break;
+            }
+
+            List<string> words = Regex.Split(normalized, @"\s+")
+                .Where(part => !string.IsNullOrWhiteSpace(part))
+                .ToList();
+            if (words.Count == 0)
+            {
+                yield break;
+            }
+
+            string currentLine = "";
+            foreach (string word in words)
+            {
+                string candidate = string.IsNullOrWhiteSpace(currentLine)
+                    ? word
+                    : currentLine + " " + word;
+                if (!string.IsNullOrWhiteSpace(currentLine) &&
+                    EstimateAdaptDraftingTextWidthFt(candidate) > maxWidthFt)
+                {
+                    yield return currentLine;
+                    currentLine = TrimAdaptDraftingTextToWidth(word, maxWidthFt);
+                }
+                else
+                {
+                    currentLine = TrimAdaptDraftingTextToWidth(candidate, maxWidthFt);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(currentLine))
+            {
+                yield return currentLine;
+            }
+        }
+
+        private static string NormalizeAdaptDraftingLine(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return "";
+            }
+
+            return Regex.Replace(text.Trim(), @"\s+", " ");
+        }
+
+        private static string TrimAdaptDraftingTextToWidth(string text, double maxWidthFt)
+        {
+            string normalized = NormalizeAdaptDraftingLine(text);
+            if (string.IsNullOrWhiteSpace(normalized) || maxWidthFt <= 1.0e-6)
+            {
+                return normalized;
+            }
+
+            if (EstimateAdaptDraftingTextWidthFt(normalized) <= maxWidthFt)
+            {
+                return normalized;
+            }
+
+            string candidate = normalized;
+            while (candidate.Length > 4 && EstimateAdaptDraftingTextWidthFt(candidate + "...") > maxWidthFt)
+            {
+                candidate = candidate.Substring(0, candidate.Length - 1).TrimEnd();
+            }
+
+            return candidate.Length < normalized.Length ? candidate + "..." : candidate;
+        }
+
+        private static int DrawAdaptProfileBand(
+            Document doc,
+            View view,
+            GraphicsStyle lineStyle,
+            IList<XYZ> centerlinePoints,
+            double renderedDiameterFt,
+            AdaptTendonProfileSegmentPayload metadataSegment,
+            string sourcePath,
+            string marker)
+        {
+            if (doc == null || view == null || centerlinePoints == null || centerlinePoints.Count < 2)
+            {
+                return 0;
+            }
+
+            if (!TryBuildAdaptProfileBandOutline(
+                centerlinePoints,
+                GetAdaptViewPlaneNormal(view),
+                Math.Max(MmToFeet(10.0), 0.5 * renderedDiameterFt),
+                out List<XYZ> topPoints,
+                out List<XYZ> bottomPoints))
+            {
+                return 0;
+            }
+
+            int created = 0;
+            created += DrawAdaptPolyline(doc, view, lineStyle, topPoints, metadataSegment, sourcePath, marker);
+            created += DrawAdaptPolyline(doc, view, lineStyle, bottomPoints, metadataSegment, sourcePath, marker);
+            created += CreateAdaptDetailCurve(doc, view, lineStyle, topPoints[0], bottomPoints[0], metadataSegment, sourcePath, marker);
+            created += CreateAdaptDetailCurve(doc, view, lineStyle, topPoints[topPoints.Count - 1], bottomPoints[bottomPoints.Count - 1], metadataSegment, sourcePath, marker);
+            created += DrawAdaptPolyline(doc, view, lineStyle, centerlinePoints, metadataSegment, sourcePath, marker);
+            return created;
+        }
+
+        private static int DrawAdaptPolyline(
+            Document doc,
+            View view,
+            GraphicsStyle lineStyle,
+            IList<XYZ> points,
+            AdaptTendonProfileSegmentPayload metadataSegment,
+            string sourcePath,
+            string marker)
+        {
+            if (points == null || points.Count < 2)
+            {
+                return 0;
+            }
+
+            int created = 0;
+            for (int i = 1; i < points.Count; i++)
+            {
+                created += CreateAdaptDetailCurve(doc, view, lineStyle, points[i - 1], points[i], metadataSegment, sourcePath, marker);
+            }
+
+            return created;
+        }
+
+        private static int CreateAdaptDetailCurve(
+            Document doc,
+            View view,
+            GraphicsStyle lineStyle,
+            XYZ start,
+            XYZ end,
+            AdaptTendonProfileSegmentPayload metadataSegment,
+            string sourcePath,
+            string marker)
+        {
+            if (doc == null || view == null || start == null || end == null || start.DistanceTo(end) < 1.0e-6)
+            {
+                return 0;
+            }
+
+            try
+            {
+                CurveElement curveElement = doc.Create.NewDetailCurve(view, Line.CreateBound(start, end));
+                if (lineStyle != null)
+                {
+                    curveElement.LineStyle = lineStyle;
+                }
+
+                if (metadataSegment != null)
+                {
+                    SetAdaptElementMetadata(curveElement, metadataSegment, sourcePath, marker);
+                }
+
+                return 1;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        private static bool TryBuildAdaptProfileBandOutline(
+            IList<XYZ> centerlinePoints,
+            XYZ planeNormal,
+            double halfWidthFt,
+            out List<XYZ> topPoints,
+            out List<XYZ> bottomPoints)
+        {
+            topPoints = new List<XYZ>();
+            bottomPoints = new List<XYZ>();
+            if (centerlinePoints == null || centerlinePoints.Count < 2)
+            {
+                return false;
+            }
+
+            List<XYZ> path = centerlinePoints
+                .Where(point => point != null)
+                .ToList();
+            if (path.Count < 2)
+            {
+                return false;
+            }
+
+            XYZ normal = planeNormal;
+            if (normal == null || normal.GetLength() < 1.0e-9)
+            {
+                normal = XYZ.BasisZ;
+            }
+            else
+            {
+                normal = normal.Normalize();
+            }
+
+            double width = Math.Max(MmToFeet(10.0), halfWidthFt);
+            for (int i = 0; i < path.Count; i++)
+            {
+                XYZ offset = ComputeAdaptProfileOffset(path, i, normal, width);
+                topPoints.Add(path[i].Add(offset));
+                bottomPoints.Add(path[i].Subtract(offset));
+            }
+
+            return topPoints.Count >= 2 && bottomPoints.Count >= 2;
+        }
+
+        private static XYZ ComputeAdaptProfileOffset(IList<XYZ> path, int index, XYZ planeNormal, double halfWidthFt)
+        {
+            XYZ previousDirection = GetAdaptPathDirection(path, index - 1, index);
+            XYZ nextDirection = GetAdaptPathDirection(path, index, index + 1);
+
+            XYZ previousNormal = GetAdaptPerpendicularOffset(previousDirection, planeNormal);
+            XYZ nextNormal = GetAdaptPerpendicularOffset(nextDirection, planeNormal);
+
+            if (previousNormal == null || previousNormal.GetLength() < 1.0e-9)
+            {
+                previousNormal = nextNormal;
+            }
+
+            if (nextNormal == null || nextNormal.GetLength() < 1.0e-9)
+            {
+                nextNormal = previousNormal;
+            }
+
+            if (previousNormal == null || previousNormal.GetLength() < 1.0e-9)
+            {
+                previousNormal = XYZ.BasisY;
+                nextNormal = XYZ.BasisY;
+            }
+
+            XYZ average = previousNormal.Add(nextNormal);
+            if (average.GetLength() < 1.0e-9)
+            {
+                average = nextNormal;
+            }
+
+            average = average.Normalize();
+            double dot = Math.Abs(average.DotProduct(nextNormal));
+            double miterLength = dot < 0.2 ? halfWidthFt : Math.Min(halfWidthFt / dot, halfWidthFt * 4.0);
+            return average.Multiply(miterLength);
+        }
+
+        private static XYZ GetAdaptPathDirection(IList<XYZ> path, int startIndex, int endIndex)
+        {
+            if (path == null || startIndex < 0 || endIndex < 0 || startIndex >= path.Count || endIndex >= path.Count)
+            {
+                return null;
+            }
+
+            XYZ direction = path[endIndex].Subtract(path[startIndex]);
+            if (direction.GetLength() < 1.0e-9)
+            {
+                return null;
+            }
+
+            return direction.Normalize();
+        }
+
+        private static XYZ GetAdaptPerpendicularOffset(XYZ direction, XYZ planeNormal)
+        {
+            if (direction == null || planeNormal == null)
+            {
+                return null;
+            }
+
+            XYZ offset = planeNormal.CrossProduct(direction);
+            if (offset.GetLength() < 1.0e-9)
+            {
+                return null;
+            }
+
+            return offset.Normalize();
+        }
+
+        private static XYZ GetAdaptViewPlaneNormal(View view)
+        {
+            XYZ normal = view?.ViewDirection;
+            if (normal == null || normal.GetLength() < 1.0e-9)
+            {
+                return XYZ.BasisZ;
+            }
+
+            return normal.Normalize();
+        }
+
+        private static double GetAdaptProfileBandDiameterFt(
+            IEnumerable<XYZ> path,
+            IEnumerable<AdaptTendonProfileSegmentPayload> segments)
+        {
+            double diameterFt = 0.0;
+            foreach (AdaptTendonProfileSegmentPayload segment in segments ?? Enumerable.Empty<AdaptTendonProfileSegmentPayload>())
+            {
+                diameterFt = Math.Max(diameterFt, GetAdaptRenderedTendonDiameterFt(segment));
+            }
+
+            if (diameterFt > 1.0e-6)
+            {
+                return diameterFt;
+            }
+
+            if (path != null && path.Count() > 1)
+            {
+                return MmToFeet(50.0);
+            }
+
+            return MmToFeet(50.0);
+        }
+
+        private static IEnumerable<string> BuildAdaptProfileMetadataSummaryLines(
+            AdaptTendonProfileSegmentPayload metadataSegment,
+            IEnumerable<AdaptTendonProfileSegmentPayload> segments,
+            double diameterFt)
+        {
+            string tendonMark = !string.IsNullOrWhiteSpace(metadataSegment?.TendonName)
+                ? metadataSegment.TendonName.Trim()
+                : (!string.IsNullOrWhiteSpace(metadataSegment?.ProfileName) ? metadataSegment.ProfileName.Trim() : "ADAPT Tendon");
+            int? strands = TryExtractAdaptStrandCount(segments);
+            string tendonType = InferAdaptTendonType(segments);
+            string duct = (diameterFt * 304.8).ToString("0.#", CultureInfo.InvariantCulture) + " mm";
+            string summary = "Mark: " + tendonMark;
+            if (strands.HasValue)
+            {
+                summary += " | Strands: " + strands.Value.ToString(CultureInfo.InvariantCulture);
+            }
+
+            yield return summary;
+
+            string secondary = "";
+            if (!string.IsNullOrWhiteSpace(tendonType))
+            {
+                secondary = "Type: " + tendonType;
+            }
+
+            secondary = string.IsNullOrWhiteSpace(secondary)
+                ? "Duct: " + duct
+                : secondary + " | Duct: " + duct;
+            yield return secondary;
+        }
+
+        private static string BuildAdaptPolylineSignature(IList<XYZ> path, bool includeZ)
+        {
+            List<XYZ> points = (path ?? new List<XYZ>())
+                .Where(point => point != null)
+                .ToList();
+            if (points.Count == 0)
+            {
+                return "";
+            }
+
+            string forward = string.Join(";", points.Select(point => BuildAdaptSignaturePoint(point, includeZ)));
+            string reverse = string.Join(";", points.AsEnumerable().Reverse().Select(point => BuildAdaptSignaturePoint(point, includeZ)));
+            return string.CompareOrdinal(forward, reverse) <= 0 ? forward : reverse;
+        }
+
+        private static string BuildAdaptSignaturePoint(XYZ point, bool includeZ)
+        {
+            if (point == null)
+            {
+                return "";
+            }
+
+            string x = Math.Round(point.X * 304.8, 0, MidpointRounding.AwayFromZero).ToString("0", CultureInfo.InvariantCulture);
+            string y = Math.Round(point.Y * 304.8, 0, MidpointRounding.AwayFromZero).ToString("0", CultureInfo.InvariantCulture);
+            if (!includeZ)
+            {
+                return x + "," + y;
+            }
+
+            string z = Math.Round(point.Z * 304.8, 0, MidpointRounding.AwayFromZero).ToString("0", CultureInfo.InvariantCulture);
+            return x + "," + y + "," + z;
+        }
+
+        private static string NormalizeAdaptShopMarkPrefix(string prefix)
+        {
+            string text = Regex.Replace((prefix ?? "").Trim(), @"[^A-Za-z0-9_\-]+", "");
+            return string.IsNullOrWhiteSpace(text) ? "PT" : text;
+        }
+
+        private static int GetAdaptShopMarkStartNumber(int value)
+        {
+            return Math.Max(1, value);
+        }
+
+        private static int GetAdaptShopMarkDigits(int digits)
+        {
+            return Math.Max(1, Math.Min(6, digits));
+        }
+
+        private static string BuildAdaptShopMark(int index, string prefix, int digits)
+        {
+            int safeIndex = Math.Max(1, index);
+            int safeDigits = GetAdaptShopMarkDigits(digits);
+            string safePrefix = NormalizeAdaptShopMarkPrefix(prefix);
+            return safePrefix + "-" + safeIndex.ToString("D" + safeDigits.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
+        }
+
+        private static string BuildNextAdaptShopMark(ISet<string> usedMarks, ref int nextIndex, string prefix, int digits)
+        {
+            int safeIndex = Math.Max(1, nextIndex);
+            string mark;
+            do
+            {
+                mark = BuildAdaptShopMark(safeIndex, prefix, digits);
+                safeIndex++;
+            }
+            while (usedMarks != null && usedMarks.Contains(mark));
+
+            nextIndex = safeIndex;
+            usedMarks?.Add(mark);
+            return mark;
+        }
+
+        private static int? TryExtractAdaptStrandCount(IEnumerable<AdaptTendonProfileSegmentPayload> segments)
+        {
+            foreach (AdaptTendonProfileSegmentPayload segment in segments ?? Enumerable.Empty<AdaptTendonProfileSegmentPayload>())
+            {
+                string text = string.Join(
+                    " | ",
+                    new[]
+                    {
+                        segment?.ProfileName ?? "",
+                        segment?.TendonName ?? "",
+                        segment?.SourceLabel ?? ""
+                    });
+
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    continue;
+                }
+
+                Match match = Regex.Match(
+                    text,
+                    @"(?<!\d)(\d{1,2})\s*(?:strand|strands)\b|(?<!\d)(\d{1,2})\s*s\b",
+                    RegexOptions.IgnoreCase);
+                if (match.Success)
+                {
+                    string value = match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value;
+                    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed) &&
+                        parsed > 0 &&
+                        parsed <= 99)
+                    {
+                        return parsed;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static string InferAdaptTendonType(IEnumerable<AdaptTendonProfileSegmentPayload> segments)
+        {
+            string text = string.Join(
+                " | ",
+                (segments ?? Enumerable.Empty<AdaptTendonProfileSegmentPayload>())
+                    .SelectMany(segment => new[]
+                    {
+                        segment?.ProfileName ?? "",
+                        segment?.TendonName ?? "",
+                        segment?.SourceLabel ?? ""
+                    })
+                    .Where(value => !string.IsNullOrWhiteSpace(value)));
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return "";
+            }
+
+            if (Regex.IsMatch(text, @"\bbonded\b", RegexOptions.IgnoreCase))
+            {
+                return "bonded";
+            }
+
+            if (Regex.IsMatch(text, @"\bunbonded\b", RegexOptions.IgnoreCase))
+            {
+                return "unbonded";
+            }
+
+            return "";
+        }
+
+        private static double GetAdaptNiceStep(double valueFt)
+        {
+            if (valueFt <= 1.0e-9)
+            {
+                return MmToFeet(1000.0);
+            }
+
+            double exponent = Math.Floor(Math.Log10(valueFt));
+            double magnitude = Math.Pow(10.0, exponent);
+            double normalized = valueFt / magnitude;
+            double niceNormalized =
+                normalized <= 1.0 ? 1.0 :
+                normalized <= 2.0 ? 2.0 :
+                normalized <= 5.0 ? 5.0 :
+                10.0;
+            return niceNormalized * magnitude;
+        }
+
+        private static List<List<XYZ>> BuildAdaptPathChains(IList<AdaptPathSegment> segments)
+        {
+            var unused = new List<AdaptPathSegment>(segments ?? new List<AdaptPathSegment>());
+            var chains = new List<List<XYZ>>();
+            while (unused.Count > 0)
+            {
+                AdaptPathSegment startSegment = SelectAdaptPathStartSegment(unused);
+                unused.Remove(startSegment);
+
+                var chain = new List<XYZ> { startSegment.Start, startSegment.End };
+                bool extended;
+                do
+                {
+                    extended = ExtendAdaptPathChain(chain, unused, appendAtEnd: true);
+                    extended |= ExtendAdaptPathChain(chain, unused, appendAtEnd: false);
+                }
+                while (extended);
+
+                chains.Add(CompactAdaptPoints(chain));
+            }
+
+            return chains
+                .OrderByDescending(chain => GetAdaptPolylineLength(chain))
+                .ToList();
+        }
+
+        private static AdaptPathSegment SelectAdaptPathStartSegment(IList<AdaptPathSegment> segments)
+        {
+            if (segments == null || segments.Count == 0)
+            {
+                return null;
+            }
+
+            var endpoints = new List<XYZ>();
+            foreach (AdaptPathSegment segment in segments)
+            {
+                endpoints.Add(segment.Start);
+                endpoints.Add(segment.End);
+            }
+
+            foreach (AdaptPathSegment segment in segments)
+            {
+                bool startLoose = CountAdaptCoincidentPoints(endpoints, segment.Start) <= 1;
+                bool endLoose = CountAdaptCoincidentPoints(endpoints, segment.End) <= 1;
+                if (startLoose || endLoose)
+                {
+                    if (endLoose && !startLoose)
+                    {
+                        return segment.Reversed();
+                    }
+
+                    return segment;
+                }
+            }
+
+            return segments
+                .OrderBy(segment => segment.Start.X)
+                .ThenBy(segment => segment.Start.Y)
+                .ThenBy(segment => segment.Start.Z)
+                .First();
+        }
+
+        private static int CountAdaptCoincidentPoints(IEnumerable<XYZ> points, XYZ target)
+        {
+            int count = 0;
+            foreach (XYZ point in points ?? Enumerable.Empty<XYZ>())
+            {
+                if (AreAdaptPointsNear(point, target))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private static bool ExtendAdaptPathChain(List<XYZ> chain, List<AdaptPathSegment> unused, bool appendAtEnd)
+        {
+            if (chain == null || chain.Count == 0 || unused == null || unused.Count == 0)
+            {
+                return false;
+            }
+
+            XYZ anchor = appendAtEnd ? chain[chain.Count - 1] : chain[0];
+            int bestIndex = -1;
+            bool reverse = false;
+            double bestDistance = double.MaxValue;
+            for (int i = 0; i < unused.Count; i++)
+            {
+                AdaptPathSegment segment = unused[i];
+                double d0 = anchor.DistanceTo(segment.Start);
+                double d1 = anchor.DistanceTo(segment.End);
+                if (d0 < bestDistance)
+                {
+                    bestDistance = d0;
+                    bestIndex = i;
+                    reverse = false;
+                }
+
+                if (d1 < bestDistance)
+                {
+                    bestDistance = d1;
+                    bestIndex = i;
+                    reverse = true;
+                }
+            }
+
+            if (bestIndex < 0 || bestDistance > MmToFeet(300.0))
+            {
+                return false;
+            }
+
+            AdaptPathSegment best = unused[bestIndex];
+            unused.RemoveAt(bestIndex);
+            if (reverse)
+            {
+                best = best.Reversed();
+            }
+
+            if (appendAtEnd)
+            {
+                if (!AreAdaptPointsNear(chain[chain.Count - 1], best.Start))
+                {
+                    chain.Add(best.Start);
+                }
+
+                chain.Add(best.End);
+            }
+            else
+            {
+                if (!AreAdaptPointsNear(chain[0], best.End))
+                {
+                    chain.Insert(0, best.End);
+                }
+
+                chain.Insert(0, best.Start);
+            }
+
+            return true;
+        }
+
+        private static List<XYZ> MergeAdaptPathChains(IList<XYZ> first, IList<XYZ> second)
+        {
+            List<XYZ> a = CompactAdaptPoints(first ?? new List<XYZ>());
+            List<XYZ> b = CompactAdaptPoints(second ?? new List<XYZ>());
+            if (a.Count == 0) return b;
+            if (b.Count == 0) return a;
+
+            var options = new List<Tuple<double, bool, bool>>
+            {
+                Tuple.Create(a[a.Count - 1].DistanceTo(b[0]), false, false),
+                Tuple.Create(a[a.Count - 1].DistanceTo(b[b.Count - 1]), false, true),
+                Tuple.Create(a[0].DistanceTo(b[0]), true, false),
+                Tuple.Create(a[0].DistanceTo(b[b.Count - 1]), true, true)
+            };
+
+            Tuple<double, bool, bool> best = options.OrderBy(x => x.Item1).First();
+            if (best.Item2)
+            {
+                a.Reverse();
+            }
+
+            if (best.Item3)
+            {
+                b.Reverse();
+            }
+
+            if (AreAdaptPointsNear(a[a.Count - 1], b[0]))
+            {
+                a.AddRange(b.Skip(1));
+            }
+            else
+            {
+                a.AddRange(b);
+            }
+
+            return CompactAdaptPoints(a);
+        }
+
+        private static List<XYZ> CompactAdaptPoints(IEnumerable<XYZ> points)
+        {
+            var compact = new List<XYZ>();
+            foreach (XYZ point in points ?? Enumerable.Empty<XYZ>())
+            {
+                if (point == null)
+                {
+                    continue;
+                }
+
+                if (compact.Count == 0 || !AreAdaptPointsNear(compact[compact.Count - 1], point))
+                {
+                    compact.Add(point);
+                }
+            }
+
+            return compact;
+        }
+
+        private static bool AreAdaptPointsNear(XYZ a, XYZ b)
+        {
+            return a != null && b != null && a.DistanceTo(b) < 1.0e-6;
+        }
+
+        private static double GetAdaptPolylineLength(IList<XYZ> points)
+        {
+            double length = 0.0;
+            if (points == null || points.Count < 2)
+            {
+                return length;
+            }
+
+            for (int i = 1; i < points.Count; i++)
+            {
+                length += points[i - 1].DistanceTo(points[i]);
+            }
+
+            return length;
+        }
+
+        private static Solid CreateAdaptTendonSegmentSolid(AdaptTendonProfileSegmentPayload segment, ElementId materialId)
+        {
+            Line axis = CreateAdaptModelLine(segment);
+            if (axis == null)
+            {
+                return null;
+            }
+
+            XYZ start = axis.GetEndPoint(0);
+            XYZ end = axis.GetEndPoint(1);
+            XYZ direction = end.Subtract(start);
+            double length = direction.GetLength();
+            if (length < 1.0e-6)
+            {
+                return null;
+            }
+
+            direction = direction.Normalize();
+            double radiusFt = Math.Max(MmToFeet(10.0), 0.5 * GetAdaptRenderedTendonDiameterFt(segment));
+            CurveLoop profileLoop = CreateAdaptCircularProfileLoop(start, direction, radiusFt, 12);
+            if (profileLoop == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                return GeometryCreationUtilities.CreateExtrusionGeometry(
+                    new List<CurveLoop> { profileLoop },
+                    direction,
+                    length,
+                    new SolidOptions(materialId, ElementId.InvalidElementId));
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static CurveLoop CreateAdaptCircularProfileLoop(XYZ center, XYZ normal, double radiusFt, int sides)
+        {
+            if (center == null || normal == null || radiusFt <= 1.0e-6)
+            {
+                return null;
+            }
+
+            XYZ axisZ = normal.GetLength() < 1.0e-9 ? XYZ.BasisZ : normal.Normalize();
+            XYZ helper = Math.Abs(axisZ.DotProduct(XYZ.BasisZ)) < 0.95 ? XYZ.BasisZ : XYZ.BasisX;
+            XYZ axisX = axisZ.CrossProduct(helper);
+            if (axisX.GetLength() < 1.0e-9)
+            {
+                helper = XYZ.BasisY;
+                axisX = axisZ.CrossProduct(helper);
+            }
+
+            if (axisX.GetLength() < 1.0e-9)
+            {
+                return null;
+            }
+
+            axisX = axisX.Normalize();
+            XYZ axisY = axisZ.CrossProduct(axisX);
+            if (axisY.GetLength() < 1.0e-9)
+            {
+                return null;
+            }
+
+            axisY = axisY.Normalize();
+            int segmentCount = Math.Max(8, sides);
+            var points = new List<XYZ>();
+            for (int i = 0; i < segmentCount; i++)
+            {
+                double angle = (2.0 * Math.PI * i) / segmentCount;
+                XYZ point = center
+                    .Add(axisX.Multiply(Math.Cos(angle) * radiusFt))
+                    .Add(axisY.Multiply(Math.Sin(angle) * radiusFt));
+                points.Add(point);
+            }
+
+            var curves = new List<Curve>();
+            for (int i = 0; i < points.Count; i++)
+            {
+                XYZ p0 = points[i];
+                XYZ p1 = points[(i + 1) % points.Count];
+                if (p0.DistanceTo(p1) < 1.0e-9)
+                {
+                    continue;
+                }
+
+                curves.Add(Line.CreateBound(p0, p1));
+            }
+
+            if (curves.Count < 3)
+            {
+                return null;
+            }
+
+            try
+            {
+                return CurveLoop.Create(curves);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static double GetAdaptRenderedTendonDiameterFt(AdaptTendonProfileSegmentPayload segment)
+        {
+            const double defaultDiameterMm = 50.0;
+            double inferredMm = TryExtractAdaptDiameterMm(segment);
+            if (inferredMm > 1.0)
+            {
+                return MmToFeet(inferredMm);
+            }
+
+            return MmToFeet(defaultDiameterMm);
+        }
+
+        private static double TryExtractAdaptDiameterMm(AdaptTendonProfileSegmentPayload segment)
+        {
+            string text = string.Join(
+                " | ",
+                new[]
+                {
+                    segment?.ProfileName ?? "",
+                    segment?.TendonName ?? "",
+                    segment?.SourceLabel ?? ""
+                });
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return 0.0;
+            }
+
+            Match mmMatch = Regex.Match(text, @"(?<!\d)(\d+(?:\.\d+)?)\s*mm\b", RegexOptions.IgnoreCase);
+            if (mmMatch.Success &&
+                double.TryParse(mmMatch.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double mmValue))
+            {
+                return Math.Max(0.0, Math.Min(500.0, mmValue));
+            }
+
+            Match ductMatch = Regex.Match(text, @"(?:duct|dia|diameter|d)\s*[_:= -]?\s*(\d+(?:\.\d+)?)", RegexOptions.IgnoreCase);
+            if (ductMatch.Success &&
+                double.TryParse(ductMatch.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double guessedValue))
+            {
+                if (guessedValue >= 10.0 && guessedValue <= 500.0)
+                {
+                    return guessedValue;
+                }
+            }
+
+            return 0.0;
         }
 
         private static string GetElementComments(Element element)
@@ -21298,12 +26539,63 @@ namespace CamboBIM.Revit2024.Addin
             }
         }
 
-        private static void SetAdaptCurveMetadata(
-            CurveElement curveElement,
-            AdaptTendonProfileSegmentPayload segment,
-            string sourcePath)
+        private static ElementId EnsureAdaptTendonMaterial(Document doc)
         {
-            if (curveElement == null || segment == null)
+            const string materialName = "MHNK ADAPT Tendon";
+            if (doc == null)
+            {
+                return ElementId.InvalidElementId;
+            }
+
+            Material material = new FilteredElementCollector(doc)
+                .OfClass(typeof(Material))
+                .Cast<Material>()
+                .FirstOrDefault(x => string.Equals(x.Name, materialName, StringComparison.OrdinalIgnoreCase));
+
+            if (material == null)
+            {
+                try
+                {
+                    ElementId newId = Material.Create(doc, materialName);
+                    material = doc.GetElement(newId) as Material;
+                }
+                catch
+                {
+                    return ElementId.InvalidElementId;
+                }
+            }
+
+            if (material == null)
+            {
+                return ElementId.InvalidElementId;
+            }
+
+            try
+            {
+                material.Color = new Autodesk.Revit.DB.Color(186, 45, 138);
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                material.Transparency = 0;
+            }
+            catch
+            {
+            }
+
+            return material.Id;
+        }
+
+        private static void SetAdaptElementMetadata(
+            Element element,
+            AdaptTendonProfileSegmentPayload segment,
+            string sourcePath,
+            string marker)
+        {
+            if (element == null || segment == null)
             {
                 return;
             }
@@ -21314,7 +26606,7 @@ namespace CamboBIM.Revit2024.Addin
             string source = string.IsNullOrWhiteSpace(sourcePath)
                 ? ""
                 : " | Source=" + System.IO.Path.GetFileName(sourcePath);
-            string value = "ADAPT Tendon Profile";
+            string value = string.IsNullOrWhiteSpace(marker) ? "ADAPT Tendon" : marker.Trim();
             if (!string.IsNullOrWhiteSpace(label))
             {
                 value += " | " + label;
@@ -21324,10 +26616,10 @@ namespace CamboBIM.Revit2024.Addin
 
             try
             {
-                Parameter comments = curveElement.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS);
+                Parameter comments = element.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS);
                 if (comments == null)
                 {
-                    comments = curveElement.LookupParameter("Comments");
+                    comments = element.LookupParameter("Comments");
                 }
 
                 if (comments != null && !comments.IsReadOnly)
@@ -21338,6 +26630,18 @@ namespace CamboBIM.Revit2024.Addin
             catch
             {
             }
+        }
+
+        private static string MakeAdaptSafeToken(string value)
+        {
+            string token = Regex.Replace((value ?? "").Trim(), @"[^A-Za-z0-9]+", "_");
+            token = token.Trim('_');
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                token = "TENDON";
+            }
+
+            return token.Length > 96 ? token.Substring(0, 96) : token;
         }
 
         private static string BuildAdaptMetadataLabel(AdaptTendonProfileSegmentPayload segment)

@@ -107,6 +107,15 @@ namespace CamboBIM.Revit2024.Addin
         ImportOnly
     }
 
+    internal enum AdaptPtShopMarkSequenceMode
+    {
+        SourceAndName,
+        LeftToRight,
+        BottomToTop,
+        TopToBottom,
+        LongToShort
+    }
+
     internal class ColumnRebarCustomLineTieSpec
     {
         public int X0GridIndex { get; set; }
@@ -673,6 +682,11 @@ namespace CamboBIM.Revit2024.Addin
         public string AdaptTendonSourcePath { get; set; } = "";
         public string AdaptCadSourcePath { get; set; } = "";
         public AdaptCadImportMode AdaptCadImportMode { get; set; } = AdaptCadImportMode.LinkPreferred;
+        public string AdaptShopMarkPrefix { get; set; } = "PT";
+        public int AdaptShopMarkStartNumber { get; set; } = 1;
+        public int AdaptShopMarkDigits { get; set; } = 3;
+        public AdaptPtShopMarkSequenceMode AdaptShopMarkSequenceMode { get; set; } = AdaptPtShopMarkSequenceMode.SourceAndName;
+        public bool AdaptPreserveCadShopMarks { get; set; } = true;
         public List<AdaptTendonProfileSegmentPayload> AdaptTendonProfileSegments { get; set; } =
             new List<AdaptTendonProfileSegmentPayload>();
 
