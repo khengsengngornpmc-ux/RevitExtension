@@ -10,7 +10,8 @@ param(
     [switch]$SkipLicenseConfig = $false,
     [switch]$ForceLicenseConfig = $false,
     [switch]$AllUsers = $false,
-    [switch]$UnlockTestUsers = $false
+    [switch]$UnlockTestUsers = $false,
+    [switch]$AllowSmallRuntime = $false
 )
 
 Set-StrictMode -Version Latest
@@ -129,6 +130,31 @@ else {
 
 $assemblyPath = (Resolve-Path $assemblyPath).Path
 $manifestAssemblyPath = $assemblyPath
+
+function Assert-DeployableRuntime {
+    param(
+        [Parameter(Mandatory = $true)][string]$RuntimeAssemblyPath,
+        [Parameter(Mandatory = $true)][string]$Year
+    )
+
+    if (-not (Test-Path -LiteralPath $RuntimeAssemblyPath)) {
+        throw "Runtime assembly does not exist: $RuntimeAssemblyPath"
+    }
+
+    $assemblyItem = Get-Item -LiteralPath $RuntimeAssemblyPath
+    if (-not $AllowSmallRuntime -and $assemblyItem.Length -lt 65536) {
+        throw "Refusing to deploy a tiny DLL because it is probably a design-time stub: $RuntimeAssemblyPath ($($assemblyItem.Length) bytes). Build a real Revit $Year add-in on a PC with Revit API installed, then deploy the real Release|x64 DLL."
+    }
+
+    if ([int]$Year -ge 2025) {
+        $depsPath = [System.IO.Path]::ChangeExtension($RuntimeAssemblyPath, ".deps.json")
+        if (-not (Test-Path -LiteralPath $depsPath)) {
+            throw "Revit $Year .NET add-in runtime is incomplete. Missing dependency file: $depsPath"
+        }
+    }
+}
+
+Assert-DeployableRuntime -RuntimeAssemblyPath $assemblyPath -Year $RevitYear
 
 if ($UseShadowCopy) {
     $configToken = if ([string]::IsNullOrWhiteSpace($Configuration)) { "Debug" } else { $Configuration }

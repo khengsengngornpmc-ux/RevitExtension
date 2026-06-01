@@ -77,6 +77,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-revit2026-addin.ps1 -C
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy-revit2027-addin.ps1 -Configuration Release -Platform x64
 ```
 
+The deploy scripts refuse tiny DLLs because those are usually design-time stubs from a machine without Revit API. If Revit shows `External Tool Failure`, diagnose the loaded manifest and DLL:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\diagnose-revit-addin-load.ps1 -RevitYear 2025
+```
+
+For Revit 2025+, the DLL must be a real build and the matching `.deps.json` must sit beside it.
+
 If you built `Release|x64` in Visual Studio:
 
 ```powershell
@@ -133,7 +141,7 @@ Run the deploy executable:
 .\scripts\deploy-revit2027-addin.exe --configuration Release --platform x64 --revit-year 2027
 ```
 
-If you need admin rights to disable duplicate manifests in `%ProgramData%`, run the EXE as Administrator.
+If you need admin rights to disable duplicate manifests in `%ProgramData%`, run the EXE as Administrator. The deploy EXE is compiled as a console executable so PowerShell, MSBuild, and GitHub Actions can receive a real failure exit code.
 
 ## 5.2) Build installer with Inno Setup
 If you want one setup installer per Revit version, install Inno Setup 6 and build the matching Revit runtime first. The production DLL must be a real `Release` add-in DLL from the test/build PC, not a design-time stub.

@@ -18,6 +18,7 @@ namespace CamboBIM.DeployRevitAddinExe
         private const string LicenseConfigRelativePath = @"license\online-license.config.json";
         private const string LicenseGoogleSampleRelativePath = @"license\online-license.google-sheet.sample.json";
         private const string LicenseTemplateRelativePath = @"license\online-license.config.json.template";
+        private const long MinimumDeployableAssemblyBytes = 65536;
 
         private sealed class Options
         {
@@ -70,6 +71,7 @@ namespace CamboBIM.DeployRevitAddinExe
                 {
                     string help = BuildHelpText();
                     WriteLog(logPath, help);
+                    WriteConsole(help, false);
                     if (options.UseUi)
                     {
                         ShowInfo(help);
@@ -82,6 +84,7 @@ namespace CamboBIM.DeployRevitAddinExe
                 string templateSource;
                 string templateContent = ResolveTemplateContent(projectRoot, options.RevitYear, out templateSource, logPath);
                 string assemblyPath = ResolveAssemblyPath(projectRoot, options, logPath);
+                ValidateDeployableRuntime(assemblyPath, options.RevitYear);
                 string manifestContent = BuildManifest(templateContent, assemblyPath, options.AddInId, options.RevitYear);
                 string manifestPath = WriteManifest(manifestContent, options.RevitYear, options.AllUsers);
 
@@ -121,6 +124,7 @@ namespace CamboBIM.DeployRevitAddinExe
                 }
 
                 WriteLog(logPath, summary.ToString());
+                WriteConsole(summary.ToString(), false);
 
                 if (options.UseUi)
                 {
@@ -131,7 +135,10 @@ namespace CamboBIM.DeployRevitAddinExe
             }
             catch (Exception ex)
             {
-                string defaultRevitYear = GetDefaultRevitYear();
+                bool useUi = options == null || options.UseUi;
+                string defaultRevitYear = options != null && !string.IsNullOrWhiteSpace(options.RevitYear)
+                    ? options.RevitYear
+                    : GetDefaultRevitYear();
                 string manifestHint = Path.Combine(
                     Environment.GetFolderPath(options != null && options.AllUsers ? Environment.SpecialFolder.CommonApplicationData : Environment.SpecialFolder.ApplicationData),
                     "Autodesk",
@@ -149,13 +156,17 @@ namespace CamboBIM.DeployRevitAddinExe
                     "3) Check write access to:\r\n   " + manifestHint + "\r\n\r\n" +
                     "Log:\r\n" + logPath;
                 WriteLog(logPath, message + "\r\n" + ex);
+                WriteConsole(message, true);
 
-                try
+                if (useUi)
                 {
-                    ShowError(message);
-                }
-                catch
-                {
+                    try
+                    {
+                        ShowError(message);
+                    }
+                    catch
+                    {
+                    }
                 }
 
                 return 1;
@@ -548,6 +559,35 @@ namespace CamboBIM.DeployRevitAddinExe
             throw new FileNotFoundException(
                 "Could not find " + GetAssemblyFileName(options.RevitYear) + " automatically. " +
                 "Place the EXE in the project folder or select the DLL when prompted.");
+        }
+
+        private static void ValidateDeployableRuntime(string assemblyPath, string revitYear)
+        {
+            if (string.IsNullOrWhiteSpace(assemblyPath) || !File.Exists(assemblyPath))
+            {
+                throw new FileNotFoundException("Assembly path does not exist.", assemblyPath ?? "");
+            }
+
+            FileInfo assembly = new FileInfo(assemblyPath);
+            if (assembly.Length < MinimumDeployableAssemblyBytes)
+            {
+                throw new InvalidOperationException(
+                    "Refusing to deploy a tiny DLL because it is probably a design-time stub:\r\n" +
+                    assembly.FullName + " (" + assembly.Length + " bytes)\r\n\r\n" +
+                    "Build a real Revit " + revitYear + " add-in on a PC with Revit API installed, then deploy the real Release|x64 DLL.");
+            }
+
+            int year;
+            if (int.TryParse(revitYear, out year) && year >= 2025)
+            {
+                string depsPath = Path.ChangeExtension(assembly.FullName, ".deps.json");
+                if (!File.Exists(depsPath))
+                {
+                    throw new FileNotFoundException(
+                        "Revit " + revitYear + " .NET add-in runtime is incomplete. Missing dependency file.",
+                        depsPath);
+                }
+            }
         }
 
         private static void AddAssemblyCandidates(List<string> candidates, string baseDir, Options options)
@@ -1020,6 +1060,18 @@ namespace CamboBIM.DeployRevitAddinExe
             {
                 string line = "[" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "] " + (text ?? "") + "\r\n";
                 File.AppendAllText(logPath, line, Encoding.UTF8);
+            }
+            catch
+            {
+            }
+        }
+
+        private static void WriteConsole(string text, bool isError)
+        {
+            try
+            {
+                TextWriter writer = isError ? Console.Error : Console.Out;
+                writer.WriteLine(text ?? "");
             }
             catch
             {

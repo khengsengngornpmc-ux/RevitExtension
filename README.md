@@ -26,6 +26,15 @@ PT import workflow decisions are being extracted into `Features\PTDrawing\PtDraw
 
 PT import request filling is centralized in `Features\PTDrawing\PtDrawingCadToModelRequestBuilder.cs`, reducing duplicated handoff code before the Revit-side CAD2MODEL handler runs.
 
+If Revit reports an external application load failure, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\diagnose-revit-addin-load.ps1 -RevitYear 2025
+```
+
+Deployment now refuses tiny design-time stub DLLs and requires `.deps.json` beside Revit 2025+ DLLs.
+The deploy EXE is intentionally compiled as a console executable so automated scripts receive a real failure exit code.
+
 Use `scripts\add-shared-project-item.ps1` when adding shared feature files, for example:
 
 ```powershell

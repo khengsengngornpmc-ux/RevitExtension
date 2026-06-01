@@ -266,6 +266,7 @@ try {
     Test-RequiredFile -RelativePath "scripts\build-deploy-exe-all-revit.ps1" -Label "All-version deploy EXE builder"
     Test-RequiredFile -RelativePath "scripts\build-inno-installer.ps1" -Label "Inno installer builder"
     Test-RequiredFile -RelativePath "scripts\build-inno-installer-all-revit.ps1" -Label "All-version Inno installer builder"
+    Test-RequiredFile -RelativePath "scripts\diagnose-revit-addin-load.ps1" -Label "Revit add-in load diagnostics"
     Test-RequiredFile -RelativePath "installer\CamboBIM.Revit2024.Deploy.iss" -Label "Parameterized Inno template"
     Test-RequiredFile -RelativePath "Infrastructure\Composition\ExtensionServiceBootstrapper.cs" -Label "Composition bootstrapper"
     Test-RequiredFile -RelativePath "Infrastructure\Composition\ExtensionServiceRegistry.cs" -Label "Service registry"

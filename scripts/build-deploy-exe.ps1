@@ -48,7 +48,7 @@ Write-Host "  $targetPath"
 
 & $cscPath `
     /nologo `
-    /target:winexe `
+    /target:exe `
     /platform:anycpu `
     /optimize+ `
     /reference:System.Windows.Forms.dll `

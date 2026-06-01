@@ -67,6 +67,16 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build-inno-installer-all-revi
 
 The Inno template is intentionally shared at `installer\CamboBIM.Revit2024.Deploy.iss` and receives `/DRevitYear=<year>` from the wrapper scripts.
 
+## Load Failure Diagnosis
+
+If Revit reports `External Tools - External Tool Failure`, first check whether the manifest points to a real runtime DLL:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\diagnose-revit-addin-load.ps1 -RevitYear 2025
+```
+
+A DLL around a few KB is a design-time stub and cannot load in Revit. Rebuild the matching Revit project on a PC with the Autodesk Revit API installed, then deploy the real `Release|x64` output. For Revit 2025 and newer, keep the generated `.deps.json` beside the DLL.
+
 ## Reference Notes
 
 Autodesk's Revit 2025 API migration notes state that Revit 2025 moved add-ins from .NET Framework 4.8 to .NET 8. Autodesk support material also describes Revit 2025/2026 API development on .NET 8. Keep the 2027 target as a prepared SDK line until it is validated against the installed Revit 2027 API assemblies on the test machine.
