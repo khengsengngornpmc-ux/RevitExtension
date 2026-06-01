@@ -14,6 +14,7 @@
     <Compile Include="Features\PTDrawing\PtDrawingAuditPreviewPackage.cs" />
     <Compile Include="Features\PTDrawing\PtDrawingAuditService.cs" />
     <Compile Include="Features\PTDrawing\PtDrawingDraftingAnnotationService.cs" />
+    <Compile Include="Features\PTDrawing\PtDrawingCadToModelRequestBuilder.cs" />
     <Compile Include="Features\PTDrawing\PtDrawingImportModels.cs" />
     <Compile Include="Features\PTDrawing\PtDrawingImportWorkflowModels.cs" />
     <Compile Include="Features\PTDrawing\PtDrawingImportWorkflowService.cs" />

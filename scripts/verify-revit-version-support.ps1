@@ -272,6 +272,7 @@ try {
     Test-RequiredFile -RelativePath "Infrastructure\RevitExecution\RevitExecutionBoundary.cs" -Label "Revit execution boundary"
     Test-RequiredFile -RelativePath "Infrastructure\RevitExecution\RevitTransactionRunner.cs" -Label "Revit transaction runner"
     Test-RequiredFile -RelativePath "Infrastructure\Security\ExternalInputValidator.cs" -Label "External input validator"
+    Test-RequiredFile -RelativePath "Features\PTDrawing\PtDrawingCadToModelRequestBuilder.cs" -Label "PT CAD2MODEL request builder"
     Test-RequiredFile -RelativePath "Features\PTDrawing\PtDrawingImportWorkflowService.cs" -Label "PT import workflow service"
     Test-SharedProjectItemsFile
 

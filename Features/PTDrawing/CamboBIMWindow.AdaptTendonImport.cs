@@ -609,16 +609,23 @@ namespace CamboBIM.Revit2024.Addin
             }
 
             RememberAdaptPath(path);
-            _handler.Request.AdaptCadSourcePath = path;
-            _handler.Request.AdaptCadImportMode = importMode;
-            _handler.Request.AdaptTendonSourcePath = "";
-            _handler.Request.AdaptShopMarkPrefix = markSettings.Prefix;
-            _handler.Request.AdaptShopMarkStartNumber = markSettings.StartNumber;
-            _handler.Request.AdaptShopMarkDigits = markSettings.Digits;
-            _handler.Request.AdaptShopMarkSequenceMode = markSettings.SequenceMode;
-            _handler.Request.AdaptPreserveCadShopMarks = markSettings.PreserveCadShopMarks;
-            _handler.Request.AdaptTendonProfileSegments = new List<AdaptTendonProfileSegmentPayload>();
-            _handler.Request.RequestType = CadToModelRequestType.ImportAdaptCadDrawing;
+            OperationResult requestResult = PtDrawingCadToModelRequestBuilder.FillCadImport(
+                _handler.Request,
+                path,
+                importMode,
+                markSettings.Prefix,
+                markSettings.StartNumber,
+                markSettings.Digits,
+                markSettings.SequenceMode,
+                markSettings.PreserveCadShopMarks);
+            if (!requestResult.Succeeded)
+            {
+                ShowStatus("DRAWING PT CAD import: " + requestResult.Message);
+                PtDrawingTraceService.WriteTrace("CadRequestBuildFailed", requestResult.ToString(), path);
+                return;
+            }
+
+            path = _handler.Request.AdaptCadSourcePath;
             _externalEvent.Raise();
             PtDrawingTraceService.WriteTrace(
                 "QueueCadImport",
@@ -686,16 +693,23 @@ namespace CamboBIM.Revit2024.Addin
             }
 
             // This is the handoff point from file parsing into the Revit-side creation pipeline.
-            _handler.Request.AdaptTendonSourcePath = path;
-            _handler.Request.AdaptTendonImportMode = result.Mode;
-            _handler.Request.AdaptTendonProfileSegments = result.Segments;
-            _handler.Request.AdaptCadSourcePath = "";
-            _handler.Request.AdaptShopMarkPrefix = markSettings.Prefix;
-            _handler.Request.AdaptShopMarkStartNumber = markSettings.StartNumber;
-            _handler.Request.AdaptShopMarkDigits = markSettings.Digits;
-            _handler.Request.AdaptShopMarkSequenceMode = markSettings.SequenceMode;
-            _handler.Request.AdaptPreserveCadShopMarks = markSettings.PreserveCadShopMarks;
-            _handler.Request.RequestType = CadToModelRequestType.ImportAdaptTendonProfiles;
+            OperationResult requestResult = PtDrawingCadToModelRequestBuilder.FillDirectProfileImport(
+                _handler.Request,
+                path,
+                result,
+                markSettings.Prefix,
+                markSettings.StartNumber,
+                markSettings.Digits,
+                markSettings.SequenceMode,
+                markSettings.PreserveCadShopMarks);
+            if (!requestResult.Succeeded)
+            {
+                ShowStatus("DRAWING PT direct import: " + requestResult.Message);
+                PtDrawingTraceService.WriteTrace("DirectRequestBuildFailed", requestResult.ToString(), path);
+                return;
+            }
+
+            path = _handler.Request.AdaptTendonSourcePath;
             _externalEvent.Raise();
             PtDrawingTraceService.WriteTrace(
                 "QueueDirectImport",

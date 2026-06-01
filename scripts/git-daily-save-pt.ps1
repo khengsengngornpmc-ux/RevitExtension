@@ -36,6 +36,7 @@ try {
     "Features/CadToModel/CadToModelExternalEventHandler.cs",
     "Features/CadToModel/CadToModelRequest.cs",
     "Features/PTDrawing/CamboBIMWindow.AdaptTendonImport.cs",
+    "Features/PTDrawing/PtDrawingCadToModelRequestBuilder.cs",
     "Features/PTDrawing/PtDrawingAdmParserModels.cs",
     "Features/PTDrawing/PtDrawingAdmReaderService.cs",
     "Features/PTDrawing/PtDrawingDraftingAnnotationService.cs",

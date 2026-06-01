@@ -24,6 +24,8 @@ External import paths and labels should go through `Infrastructure\Security\Exte
 
 PT import workflow decisions are being extracted into `Features\PTDrawing\PtDrawingImportWorkflowService.cs` so direct ADAPT/profile-table imports and DWG/DXF fallback imports use the same validation and path-normalization rules before reaching Revit.
 
+PT import request filling is centralized in `Features\PTDrawing\PtDrawingCadToModelRequestBuilder.cs`, reducing duplicated handoff code before the Revit-side CAD2MODEL handler runs.
+
 Use `scripts\add-shared-project-item.ps1` when adding shared feature files, for example:
 
 ```powershell

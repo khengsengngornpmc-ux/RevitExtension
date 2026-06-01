@@ -463,9 +463,11 @@ Extract from existing PT code:
 
 Current progress:
 
+- `Features/PTDrawing/PtDrawingCadToModelRequestBuilder.cs`
 - `Features/PTDrawing/PtDrawingImportWorkflowModels.cs`
 - `Features/PTDrawing/PtDrawingImportWorkflowService.cs`
 - direct PT and CAD fallback queue paths now validate and normalize source files before filling Revit handler requests
+- PT queue paths now use a shared request builder before raising the Revit external event
 
 ### Stage 3. Extract CAD and drafting services
 
