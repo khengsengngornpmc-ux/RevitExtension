@@ -15,6 +15,8 @@
     <Compile Include="Features\PTDrawing\PtDrawingAuditService.cs" />
     <Compile Include="Features\PTDrawing\PtDrawingDraftingAnnotationService.cs" />
     <Compile Include="Features\PTDrawing\PtDrawingImportModels.cs" />
+    <Compile Include="Features\PTDrawing\PtDrawingImportWorkflowModels.cs" />
+    <Compile Include="Features\PTDrawing\PtDrawingImportWorkflowService.cs" />
     <Compile Include="Features\PTDrawing\PtDrawingTableParserModels.cs" />
     <Compile Include="Features\PTDrawing\PtDrawingTableRowParserService.cs" />
     <Compile Include="Features\PTDrawing\PtDrawingSnapshotRecord.cs" />
@@ -94,6 +96,7 @@
     <Compile Include="Infrastructure\RevitExecution\RevitExecutionQueue.cs" />
     <Compile Include="Infrastructure\RevitExecution\RevitExecutionRequestBase.cs" />
     <Compile Include="Infrastructure\RevitExecution\RevitTransactionRunner.cs" />
+    <Compile Include="Infrastructure\Security\ExternalInputValidator.cs" />
     <Compile Include="Features\ArchitectureTools\MhnkArcGuideline.cs" />
     <Compile Include="Features\ArchitectureTools\MhnkArcToolMetadata.cs" />
     <Compile Include="Features\ArchitectureTools\MhnkArcPreviewModels.cs" />

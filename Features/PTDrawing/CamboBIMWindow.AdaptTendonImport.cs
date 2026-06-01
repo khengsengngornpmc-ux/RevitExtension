@@ -585,6 +585,16 @@ namespace CamboBIM.Revit2024.Addin
                 return;
             }
 
+            OperationResult<PtDrawingValidatedSource> sourceValidation = PtDrawingImportWorkflowService.ValidateCadSource(path);
+            if (!sourceValidation.Succeeded)
+            {
+                ShowStatus("DRAWING PT CAD import: " + sourceValidation.Message);
+                PtDrawingTraceService.WriteTrace("CadSourceValidationFailed", sourceValidation.ToString(), path);
+                return;
+            }
+
+            path = sourceValidation.Value.SourcePath;
+
             if (!TryChooseAdaptCadImportMode(path, out AdaptCadImportMode importMode))
             {
                 ShowStatus("DRAWING PT: CAD import cancelled.");
@@ -651,6 +661,16 @@ namespace CamboBIM.Revit2024.Addin
                 ShowStatus("ADAPT import is available only inside Revit.");
                 return;
             }
+
+            OperationResult<PtDrawingValidatedSource> sourceValidation = PtDrawingImportWorkflowService.ValidateDirectProfileSource(path);
+            if (!sourceValidation.Succeeded)
+            {
+                ShowStatus("DRAWING PT direct import: " + sourceValidation.Message);
+                PtDrawingTraceService.WriteTrace("DirectSourceValidationFailed", sourceValidation.ToString(), path);
+                return;
+            }
+
+            path = sourceValidation.Value.SourcePath;
 
             if (result == null || result.Segments.Count == 0)
             {
@@ -990,14 +1010,16 @@ namespace CamboBIM.Revit2024.Addin
             AdaptImportWorkflowOption workflow,
             AdaptShopMarkSettings markSettings)
         {
-            if (string.IsNullOrWhiteSpace(sourcePath))
+            OperationResult<PtDrawingValidatedSource> sourceValidation = PtDrawingImportWorkflowService.ValidateAnySource(sourcePath);
+            if (!sourceValidation.Succeeded)
             {
-                ShowStatus("DRAWING PT renumber/audit: source path is empty.");
+                ShowStatus("DRAWING PT renumber/audit: " + sourceValidation.Message);
                 return false;
             }
 
             try
             {
+                sourcePath = sourceValidation.Value.SourcePath;
                 RememberAdaptPath(sourcePath);
 
                 if (workflow == AdaptImportWorkflowOption.CadDrawingImport)
@@ -1022,16 +1044,15 @@ namespace CamboBIM.Revit2024.Addin
                         ShowStatus("DRAWING PT renumber/audit: direct ADM read did not find usable tendon geometry: " + ex.Message);
                     }
 
-                    if (PtDrawingSourceService.TryFindLatestCadExport(sourcePath, out string exportPath))
+                    PtDrawingCadFallbackResult fallback = PtDrawingImportWorkflowService.FindCadFallbackForProject(sourcePath);
+                    if (fallback.Found)
                     {
-                        FileInfo exportInfo = new FileInfo(exportPath);
-                        string exportFreshness = PtDrawingSourceService.BuildExportFreshnessNote(sourcePath, exportInfo);
                         MessageBoxResult useCadFallback = MessageBox.Show(
                             this,
                             "Direct .adm tendon geometry was not available for this renumber / audit run, but a nearby ADAPT CAD export was found:\n\n" +
-                            Path.GetFileName(exportPath) +
-                            "\nModified: " + exportInfo.LastWriteTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) +
-                            exportFreshness +
+                            fallback.DisplayName +
+                            "\nModified: " + (fallback.LastWriteTime.HasValue ? fallback.LastWriteTime.Value.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) : "<unknown>") +
+                            fallback.FreshnessNote +
                             "\n\nUse this DWG / DXF fallback now?",
                             "DRAWING PT Renumber / Audit",
                             MessageBoxButton.YesNo,
@@ -1040,7 +1061,7 @@ namespace CamboBIM.Revit2024.Addin
 
                         if (useCadFallback == MessageBoxResult.Yes)
                         {
-                            QueueAdaptCadDrawingImport(exportPath, markSettings, "DRAWING PT renumber/audit");
+                            QueueAdaptCadDrawingImport(fallback.ExportPath, markSettings, "DRAWING PT renumber/audit");
                             return true;
                         }
                     }
@@ -1189,7 +1210,7 @@ namespace CamboBIM.Revit2024.Addin
             string sourcePath,
             AdaptImportWorkflowOption workflow)
         {
-            return PtDrawingSourceService.TryBuildAuditDocumentFromSource(
+            return PtDrawingImportWorkflowService.TryBuildAuditDocumentFromSource(
                 sourcePath,
                 workflow == AdaptImportWorkflowOption.CadDrawingImport,
                 ReadAdaptTendonProfileFile);

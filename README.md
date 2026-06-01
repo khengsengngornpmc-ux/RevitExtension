@@ -20,6 +20,10 @@ The shared source, WPF page, content, and resource registry lives in `CamboBIM.S
 
 The shared Revit execution boundary lives in `Infrastructure\RevitExecution`. New modeless UI workflows should create feature request objects and raise them through `RevitExecutionBoundary`, then use `RevitTransactionRunner` for document mutations.
 
+External import paths and labels should go through `Infrastructure\Security\ExternalInputValidator` before reading ADAPT, DWG, DXF, Excel, CSV, JSON, or user-provided text.
+
+PT import workflow decisions are being extracted into `Features\PTDrawing\PtDrawingImportWorkflowService.cs` so direct ADAPT/profile-table imports and DWG/DXF fallback imports use the same validation and path-normalization rules before reaching Revit.
+
 Use `scripts\add-shared-project-item.ps1` when adding shared feature files, for example:
 
 ```powershell

@@ -30,6 +30,7 @@ Supporting shared and technical foundation already applied:
 - `Infrastructure/`
 - `Infrastructure/Composition`
 - `Infrastructure/RevitExecution`
+- `Infrastructure/Security`
 - `Shared/Interop`
 - `Shared/Revit`
 - `Shared/Runtime`
@@ -409,6 +410,7 @@ Complete now:
 - lightweight service registry and bootstrapper
 - shared Revit `ExternalEvent` execution boundary
 - shared Revit transaction runner
+- shared external input validator for ADAPT, DWG, DXF, Excel, CSV, JSON, and imported labels
 
 ### Stage 1.1. Revit execution boundary
 
@@ -432,6 +434,23 @@ Feature migration rule:
 - feature request code uses `RevitTransactionRunner.Run(...)` for document changes
 - each request writes feature trace logs through `FeatureTraceWriter`
 
+### Stage 1.2. External input validation
+
+The security foundation now includes `Infrastructure/Security/ExternalInputValidator.cs`.
+
+Rule for all import workflows:
+
+- validate file paths before reading
+- whitelist expected extensions per workflow
+- normalize full paths before storing them in requests
+- sanitize imported labels before matching, naming, or writing parameters
+- trace validation failures without throwing raw errors into the user workflow
+
+Current first consumer:
+
+- `Features/PTDrawing/PtDrawingSourceService.cs`
+- `Features/PTDrawing/PtDrawingImportWorkflowService.cs`
+
 ### Stage 2. Extract PT workflow services
 
 Extract from existing PT code:
@@ -441,6 +460,12 @@ Extract from existing PT code:
 - numbering rules
 - profile drafting request building
 - snapshot persistence
+
+Current progress:
+
+- `Features/PTDrawing/PtDrawingImportWorkflowModels.cs`
+- `Features/PTDrawing/PtDrawingImportWorkflowService.cs`
+- direct PT and CAD fallback queue paths now validate and normalize source files before filling Revit handler requests
 
 ### Stage 3. Extract CAD and drafting services
 

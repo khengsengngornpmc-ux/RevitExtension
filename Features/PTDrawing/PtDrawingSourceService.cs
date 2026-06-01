@@ -10,12 +10,22 @@ namespace CamboBIM.Revit2024.Addin
     {
         public static bool IsProjectPath(string path)
         {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+
             string ext = Path.GetExtension(path) ?? "";
             return string.Equals(ext, ".adm", StringComparison.OrdinalIgnoreCase);
         }
 
         public static bool IsCadDrawingPath(string path)
         {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+
             string ext = Path.GetExtension(path) ?? "";
             return string.Equals(ext, ".dwg", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(ext, ".dxf", StringComparison.OrdinalIgnoreCase);
@@ -44,14 +54,20 @@ namespace CamboBIM.Revit2024.Addin
         public static bool TryFindLatestCadExport(string projectPath, out string exportPath)
         {
             exportPath = "";
-            if (string.IsNullOrWhiteSpace(projectPath))
+            OperationResult<string> validation = ExternalInputValidator.ValidateReadableFile(
+                projectPath,
+                "PT_DRAWING",
+                ".adm");
+            if (!validation.Succeeded)
             {
+                FeatureTraceWriter.WriteStage("PT_DRAWING", "InputValidation", validation.ToString());
                 return false;
             }
 
             string projectDirectory;
             try
             {
+                projectPath = validation.Value;
                 projectDirectory = Path.GetDirectoryName(projectPath);
             }
             catch
@@ -107,7 +123,8 @@ namespace CamboBIM.Revit2024.Addin
                 return "";
             }
 
-            return Regex.Replace(value.ToLowerInvariant(), @"[^a-z0-9]+", "");
+            string sanitized = ExternalInputValidator.SanitizeImportedLabel(value, 128);
+            return Regex.Replace(sanitized.ToLowerInvariant(), @"[^a-z0-9]+", "");
         }
 
         public static AdaptTendonImportReadResult ReadTendonProfileFile(
@@ -116,11 +133,25 @@ namespace CamboBIM.Revit2024.Addin
             Func<string, AdaptTendonImportReadResult> readExcel,
             Func<string, AdaptTendonImportReadResult> readText)
         {
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            OperationResult<string> validation = ExternalInputValidator.ValidateReadableFile(
+                path,
+                "PT_DRAWING",
+                ".adm",
+                ".dwg",
+                ".dxf",
+                ".xlsx",
+                ".xlsm",
+                ".xls",
+                ".csv",
+                ".tsv",
+                ".txt");
+            if (!validation.Succeeded)
             {
+                FeatureTraceWriter.WriteStage("PT_DRAWING", "InputValidation", validation.ToString());
                 return new AdaptTendonImportReadResult();
             }
 
+            path = validation.Value;
             string ext = Path.GetExtension(path) ?? "";
             if (string.Equals(ext, ".adm", StringComparison.OrdinalIgnoreCase))
             {
